@@ -31,6 +31,35 @@ Requires Laravel 11 or newer (uses `casts()` and the `Queueable` job trait).
 Keep API traffic on a management VLAN or VPN. For API-SSL, create and sign a
 certificate, then `/ip service set api-ssl certificate=<cert> address=<LARAVEL_SERVER_IP>/32 disabled=no`.
 
+## Network layout per router
+
+```
+            ISP
+             |
+           [WAN]  keep / DHCP / static
+             |
+        MikroTik router ---- [LAN ports] bridge-lan (untagged office LAN, optional)
+             |
+        bridge-trunk  (VLAN filtering)
+         |        |
+   [Trunk ports]  [Hotspot ports]
+   tagged:        untagged in hotspot VLAN
+   hotspot 10     (plain APs, wlan interfaces)
+   mgmt    99
+   test    20
+```
+
+| Network | Default VLAN | Address plan (block N per router) | Reaches |
+|---|---|---|---|
+| Hotspot | 10 | `/20` from `10.64.0.0/10`, login + RADIUS | internet only |
+| Management | 99 | `/24` from `172.20.0.0/14` | internet, router, LAN |
+| Test | 20 | `/24` from `172.24.0.0/14`, no login | internet only |
+| LAN (optional) | untagged | `/24` from `172.16.0.0/14` | internet, router, management |
+
+VLAN IDs and interface names are set per router on the Add router page (defaults in
+`.env`). Tick "Send management untagged" when APs or switches boot without a tag.
+On management, test and LAN, addresses `.2`-`.63` are kept for fixed IPs.
+
 ## What "Add router" configures
 
 All objects are tagged `publicwifi:*` or use fixed names, so Re-apply updates in place.
@@ -38,16 +67,26 @@ All objects are tagged `publicwifi:*` or use fixed names, so Re-apply updates in
 | Step | RouterOS |
 |---|---|
 | Identity | `/system identity` = router name (used as NAS-Identifier) |
-| Bridge | `bridge-hotspot`, hotspot port added to it |
-| Address | gateway `.1` of the allocated block |
-| Pool + DHCP | `pool-hotspot`, `dhcp-hotspot`, lease 1h |
-| DNS | upstream servers, router answers clients |
-| NAT | masquerade block out the WAN port |
-| Firewall | drop FTP/SSH/Telnet/Winbox/API from the hotspot side |
+| WAN | chosen port taken out of any bridge; keep / DHCP client / static IP + default route |
+| Trunk bridge | `bridge-trunk`; trunk ports `admit-only-vlan-tagged` (or native mgmt), hotspot ports untagged PVID; ingress filtering |
+| VLAN table | `/interface bridge vlan` per network, bridge tagged; VLAN filtering switched on last |
+| VLAN interfaces | one `/interface vlan` per network on `bridge-trunk` |
+| Addressing | gateway `.1`, pool, DHCP server and masquerade per network |
+| Interface lists | management, test and LAN in list `LAN`, WAN port in list `WAN` |
+| Firewall | hotspot and test: internet only both ways, router management ports blocked |
 | RADIUS | hotspot service, accounting, interim 5m, CoA accept |
-| Hotspot | profile `hsprof-publicwifi` (CHAP + MAC cookie), server `hotspot-publicwifi` |
-| User profile | `default`: 1 device per account, 5M/10M, 4h session |
+| Hotspot | on the hotspot VLAN interface, CHAP + MAC cookie, 1 device per account |
 | Walled garden | hosts from `HOTSPOT_WALLED_GARDEN` |
+
+## Ports and models
+
+Each port gets a role: WAN (exactly one), Trunk, Hotspot (untagged), LAN, or Not used.
+Models and their default port names are in `config/mikrotik_models.php`; add your own there.
+"Read ports from router" pulls the real list over the API, including wireless interfaces.
+
+Before changing anything the router is checked: every port must exist, and the plan is
+refused if it would move the port (or every port of the bridge) the dashboard is connected
+through. Easiest setup: let the server reach each router on its WAN address.
 
 ## Designed for 500,000 users
 

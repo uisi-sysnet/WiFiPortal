@@ -2,24 +2,64 @@
 
 @section('title', 'Add router | Public WiFi Control')
 
+@push('head')
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<style>
+.model-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
+select{font:inherit;width:100%;padding:9px 11px;border:1px solid #A7B4AD;border-radius:4px;background:#fff;color:var(--ink)}
+#detect-msg{min-height:1.5em}
+
+/* Front panel: one block per port, coloured by role */
+.front{display:flex;flex-wrap:wrap;gap:4px;padding:12px;background:#1E2F3A;border-radius:4px;margin:4px 0 12px}
+.front span{min-width:34px;height:30px;padding:0 6px;display:grid;place-items:center;border-radius:3px;font:500 .78rem "IBM Plex Mono",monospace;color:#fff;background:#3B4D58}
+.front span.wan{background:#E0A43A;color:#1E2F3A}
+.front span.lan{background:#3D7CC9}
+.front span.trunk{background:repeating-linear-gradient(135deg,var(--signal) 0 6px,#7E5BB5 6px 12px)}
+.front span.access{background:var(--signal)}
+.front span.none{background:#3B4D58;color:#8FA3AB}
+.key{display:flex;flex-wrap:wrap;gap:16px;font-size:.82rem;color:var(--ink-2);margin-bottom:14px}
+.key i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+
+table.ports th,table.ports td{padding:8px 12px;text-align:center;white-space:nowrap}
+table.ports th[scope=row]{text-align:left;font-weight:400;background:none;color:var(--ink)}
+table.ports th[scope=row] small{display:block;color:var(--ink-2);font-size:.8rem}
+table.ports th[scope=row] small.api{color:var(--warn);font-weight:600}
+table.ports input{width:18px;height:18px;accent-color:var(--signal);cursor:pointer}
+table.vlans{width:100%}
+table.vlans th,table.vlans td{padding:8px 10px;vertical-align:middle}
+table.vlans input[type=number]{width:92px}
+table.vlans td.mono{color:var(--ink-2)}
+#port-summary{margin:12px 0 18px}
+
+.choice{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:16px}
+</style>
+@endpush
+
 @section('content')
 <div class="page-head">
   <div>
     <h1>Add router</h1>
-    <p class="lede">We connect to the MikroTik, check the interfaces, then apply the hotspot setup: bridge, DHCP, DNS, NAT, RADIUS and the login page.</p>
+    <p class="lede">Pick the model, decide what each port does, and set the VLANs. Trunk ports carry the hotspot, management and test VLANs tagged to your APs and switches. We check everything on the router before changing it.</p>
   </div>
 </div>
 
 @if ($errors->any())
-  <div class="alert" role="alert">Fix the highlighted fields and try again.</div>
+  <div class="alert" role="alert">
+    Fix the highlighted fields and try again.
+    @error('ports')<br><strong>{{ $message }}</strong>@enderror
+    @error('vlans')<br><strong>{{ $message }}</strong>@enderror
+  </div>
 @endif
 
 @php
   $err = fn ($f) => $errors->has($f) ? 'aria-invalid=true aria-describedby='.$f.'-error' : '';
+  $groups = collect($models)->groupBy('group', true);
+  $model = old('model', 'hex');
 @endphp
 
-<form method="POST" action="{{ route('routers.store') }}" class="form-layout" novalidate>
+<form id="router-form" method="POST" action="{{ route('routers.store') }}" class="form-layout" novalidate>
   @csrf
+  <input type="hidden" id="detected" name="detected_ports" value="{{ old('detected_ports') }}">
   <div>
     <fieldset>
       <legend>Site</legend>
@@ -68,20 +108,102 @@
     </fieldset>
 
     <fieldset>
-      <legend>Interfaces</legend>
-      <div class="row">
+      <legend>Ports</legend>
+      <div class="model-row">
+        <div class="field" style="margin-bottom:8px">
+          <label for="model">Router model</label>
+          <select id="model" name="model">
+            @if ($model === 'detected' && old('detected_ports'))
+              <option value="detected" selected>Read from router</option>
+            @endif
+            @foreach ($groups as $group => $items)
+              <optgroup label="{{ $group }}">
+                @foreach ($items as $key => $m)
+                  <option value="{{ $key }}" @selected($model === $key)>{{ $m['label'] }} ({{ count($m['ports']) }} ports)</option>
+                @endforeach
+              </optgroup>
+            @endforeach
+          </select>
+        </div>
+        <button type="button" id="detect" class="btn quiet" style="margin-bottom:8px">Read ports from router</button>
+      </div>
+      <p class="hint" id="detect-msg" aria-live="polite">Not listed, or has wireless? Fill in the API connection above and read the ports from the router.</p>
+
+      <div class="front" id="front" aria-hidden="true"></div>
+      <div class="key">
+        <span><i style="background:#E0A43A"></i>WAN, internet</span>
+        <span><i style="background:repeating-linear-gradient(135deg,var(--signal) 0 3px,#7E5BB5 3px 6px)"></i>Trunk, all VLANs tagged</span>
+        <span><i style="background:var(--signal)"></i>Hotspot, untagged</span>
+        <span><i style="background:#3D7CC9"></i>LAN, untagged office network</span>
+        <span><i style="background:#3B4D58"></i>Not used</span>
+      </div>
+
+      <div class="table-wrap">
+        <table class="ports">
+          <thead><tr><th scope="col" style="text-align:left">Port</th><th scope="col">WAN</th><th scope="col">Trunk</th><th scope="col">Hotspot</th><th scope="col">LAN</th><th scope="col">Not used</th></tr></thead>
+          <tbody id="port-rows"></tbody>
+        </table>
+      </div>
+      <p id="port-summary" class="hint" aria-live="polite"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>VLANs</legend>
+      <p class="hint" style="margin:0 0 12px">Use the same IDs your switches and APs are set to. The interface name is what you will see in Winbox.</p>
+      <div class="table-wrap" style="margin-bottom:14px">
+        <table class="vlans">
+          <thead><tr><th scope="col">Network</th><th scope="col">VLAN ID</th><th scope="col">Interface name</th><th scope="col">Subnet</th></tr></thead>
+          <tbody>
+          @foreach (\App\Models\MikrotikRouter::NETWORKS as $net => $label)
+            @php $d = $vlanDefaults[$net]; @endphp
+            <tr>
+              <th scope="row" style="background:none;color:var(--ink);font-weight:600">{{ $label }}</th>
+              <td>
+                <input type="number" min="2" max="4094" name="vlans[{{ $net }}][id]" id="vlan-{{ $net }}-id" data-net="{{ $net }}"
+                       value="{{ old("vlans.$net.id", $d['id']) }}" aria-label="{{ $label }} VLAN ID" required
+                       @error("vlans.$net.id") aria-invalid="true" @enderror>
+              </td>
+              <td>
+                <input type="text" class="mono" name="vlans[{{ $net }}][name]" id="vlan-{{ $net }}-name" data-net="{{ $net }}"
+                       value="{{ old("vlans.$net.name", $d['name']) }}" maxlength="32" aria-label="{{ $label }} interface name" required
+                       @error("vlans.$net.name") aria-invalid="true" @enderror>
+              </td>
+              <td class="mono">{{ $next ? ($net === 'hotspot' ? $next['subnet'] : $next[$net.'_subnet']) : '' }}</td>
+            </tr>
+          @endforeach
+          </tbody>
+        </table>
+      </div>
+      @foreach (['vlans.hotspot.id','vlans.hotspot.name','vlans.mgmt.id','vlans.mgmt.name','vlans.test.id','vlans.test.name'] as $f)
+        @error($f)<p class="error">{{ $message }}</p>@enderror
+      @endforeach
+      <div class="field">
+        <label class="check"><input type="checkbox" name="mgmt_native" value="1" @checked(old('mgmt_native', config('hotspot.mgmt_native')))> Send management untagged on trunk ports</label>
+        <p class="hint">Turn on if your APs or switches get their management IP without a VLAN tag (native VLAN).</p>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Internet (WAN) settings</legend>
+      @php $wanMode = old('wan_mode', 'keep'); @endphp
+      <div class="choice" role="radiogroup" aria-label="WAN address">
+        <label class="check"><input type="radio" name="wan_mode" value="keep" @checked($wanMode === 'keep')> Keep current settings</label>
+        <label class="check"><input type="radio" name="wan_mode" value="dhcp" @checked($wanMode === 'dhcp')> Get IP from ISP (DHCP)</label>
+        <label class="check"><input type="radio" name="wan_mode" value="static" @checked($wanMode === 'static')> Static IP</label>
+      </div>
+      <div class="row" id="wan-static" @if($wanMode !== 'static') hidden @endif>
         <div class="field">
-          <label for="wan_interface">Internet (WAN)</label>
-          <input id="wan_interface" name="wan_interface" type="text" value="{{ old('wan_interface', 'ether1') }}" required class="mono" {!! $err('wan_interface') !!}>
-          @error('wan_interface')<p class="error" id="wan_interface-error">{{ $message }}</p>@enderror
+          <label for="wan_address">IP address with prefix</label>
+          <input id="wan_address" name="wan_address" type="text" value="{{ old('wan_address') }}" placeholder="203.0.113.10/29" class="mono" {!! $err('wan_address') !!}>
+          @error('wan_address')<p class="error" id="wan_address-error">{{ $message }}</p>@enderror
         </div>
         <div class="field">
-          <label for="hotspot_interface">Hotspot (users)</label>
-          <input id="hotspot_interface" name="hotspot_interface" type="text" value="{{ old('hotspot_interface', 'ether2') }}" required class="mono" {!! $err('hotspot_interface') !!}>
-          @error('hotspot_interface')<p class="error" id="hotspot_interface-error">{{ $message }}</p>@enderror
+          <label for="wan_gateway">ISP gateway</label>
+          <input id="wan_gateway" name="wan_gateway" type="text" value="{{ old('wan_gateway') }}" placeholder="203.0.113.9" class="mono" {!! $err('wan_gateway') !!}>
+          @error('wan_gateway')<p class="error" id="wan_gateway-error">{{ $message }}</p>@enderror
         </div>
       </div>
-      <p class="hint" style="margin:-6px 0 18px">The hotspot port is moved into a new bridge. Don't pick the port you manage the router through.</p>
+      <p class="hint" style="margin-bottom:18px">Keep current settings if the WAN already works, for example PPPoE set up by hand.</p>
     </fieldset>
 
     <div class="actions">
@@ -94,15 +216,21 @@
     <h2 id="alloc-title">This router will get</h2>
     @if ($next)
       <dl>
-        <dt>Subnet</dt><dd class="mono">{{ $next['subnet'] }}</dd>
-        <dt>Gateway</dt><dd class="mono">{{ $next['gateway'] }}</dd>
-        <dt>DHCP pool</dt><dd class="mono">{{ $next['pool_start'] }}<br>{{ $next['pool_end'] }}</dd>
+        <dt>Hotspot</dt><dd class="mono">{{ $next['subnet'] }}</dd>
         <dt>Devices</dt><dd>up to {{ number_format($plan['hosts_per_block']) }}</dd>
+        <dt>Management</dt><dd class="mono">{{ $next['mgmt_subnet'] }}</dd>
+        <dt>Test</dt><dd class="mono">{{ $next['test_subnet'] }}</dd>
+      </dl>
+      <dl id="lan-aside">
+        <dt>LAN</dt><dd class="mono">{{ $next['lan_subnet'] }}</dd>
+      </dl>
+      <dl>
         <dt>Per user</dt><dd class="mono">{{ config('hotspot.rate_limit') }}</dd>
         <dt>Login page</dt><dd class="mono">{{ config('hotspot.dns_name') }}</dd>
-        <dt>RADIUS</dt><dd>{{ config('hotspot.radius.host') ? config('hotspot.radius.host') : 'Not set' }}</dd>
+        <dt>RADIUS</dt><dd>{{ config('hotspot.radius.host') ?: 'not set' }}</dd>
       </dl>
-      <p>Allocated automatically from {{ $plan['supernet'] }}. The exact block is confirmed when you save.</p>
+      <p>Each network's gateway is <span class="mono">.1</span>. On management, test and LAN, addresses below <span class="mono">.64</span> are kept for fixed IPs.</p>
+      <p>Hotspot and test users reach only the internet. Only management and LAN can open Winbox on the router.</p>
     @else
       <p>The address plan is full. Widen <span class="mono">HOTSPOT_SUPERNET</span> before adding more routers.</p>
     @endif
@@ -110,13 +238,178 @@
 </form>
 
 <script>
-  // Switch the default port when API-SSL is toggled, unless the user typed their own.
-  (function () {
-    var ssl = document.getElementById('use_ssl'), port = document.getElementById('api_port');
-    var plain = '{{ config('hotspot.api.port') }}', secure = '{{ config('hotspot.api.ssl_port') }}';
-    ssl.addEventListener('change', function () {
-      if (port.value === plain || port.value === secure || port.value === '') port.value = ssl.checked ? secure : plain;
+(function () {
+  const models = @json(collect($models)->map(fn ($m) => $m['ports']));
+  const oldRoles = @json((object) old('ports', []));
+  const detectUrl = @json(route('routers.detect'));
+  const token = document.querySelector('meta[name=csrf-token]').content;
+  const ROLES = [['wan', 'WAN'], ['trunk', 'Trunk'], ['access', 'Hotspot untagged'], ['lan', 'LAN'], ['none', 'Not used']];
+
+  const $ = (id) => document.getElementById(id);
+  const select = $('model'), rows = $('port-rows'), front = $('front'), summary = $('port-summary');
+  const detectedInput = $('detected'), detectBtn = $('detect'), detectMsg = $('detect-msg');
+
+  let detected = null;
+  try { detected = JSON.parse(detectedInput.value || 'null'); } catch (e) {}
+
+  const typeOf = (n) => /^q?sfp/.test(n) ? 'SFP' : /^combo/.test(n) ? 'Combo' : 'Ethernet';
+  const short = (n) => n.replace(/^ether/, '').replace(/^sfp-sfpplus/, 'S+').replace(/^sfp28-/, 'S28-')
+                        .replace(/^q?sfp/, 'S').replace(/^combo/, 'C').replace(/^(wlan|wifi)/, 'W');
+
+  function currentPorts() {
+    if (select.value === 'detected' && detected) {
+      return detected.ports.map((p) => ({ name: p.name, type: p.type === 'wireless' ? 'Wireless' : typeOf(p.name), bridge: p.bridge, api: p.api }));
+    }
+    return (models[select.value] || []).map((n) => ({ name: n, type: typeOf(n) }));
+  }
+
+  // Sensible start: the port the dashboard connects through (or the first) is WAN,
+  // wired ports are trunks, wireless interfaces carry the hotspot untagged.
+  function defaults(ports) {
+    const roles = {};
+    const direct = ports.find((p) => p.api && !p.bridge);
+    const wan = direct ? direct.name : (ports[0] && ports[0].name);
+    ports.forEach((p) => {
+      roles[p.name] = p.name === wan ? 'wan' : (p.type === 'Wireless' ? 'access' : 'trunk');
     });
-  })();
+    return roles;
+  }
+
+  function render(roles) {
+    const ports = currentPorts();
+    rows.innerHTML = '';
+    if (!ports.length) {
+      rows.innerHTML = '<tr><td colspan="6" class="hint" style="text-align:left">Choose a model, or read the ports from the router.</td></tr>';
+      return update();
+    }
+    roles = roles || defaults(ports);
+    ports.forEach((p) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.scope = 'row';
+      th.innerHTML = '<span class="mono"></span><small></small>';
+      th.querySelector('.mono').textContent = p.name;
+      const notes = [p.type];
+      if (p.bridge) notes.push('now in ' + p.bridge);
+      th.querySelector('small').textContent = notes.join(', ');
+      if (p.api) {
+        const s = document.createElement('small');
+        s.className = 'api';
+        s.textContent = 'Dashboard connects through here';
+        th.appendChild(s);
+      }
+      tr.appendChild(th);
+      ROLES.forEach(([value, label]) => {
+        const td = document.createElement('td');
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = 'ports[' + p.name + ']';
+        input.value = value;
+        input.checked = (roles[p.name] || 'none') === value;
+        input.setAttribute('aria-label', p.name + ' as ' + label);
+        td.appendChild(input);
+        tr.appendChild(td);
+      });
+      rows.appendChild(tr);
+    });
+    update();
+  }
+
+  function currentRoles() {
+    const r = {};
+    rows.querySelectorAll('input[type=radio]:checked').forEach((i) => { r[i.name.slice(6, -1)] = i.value; });
+    return r;
+  }
+
+  function update() {
+    const r = currentRoles();
+    front.innerHTML = '';
+    const by = { wan: [], trunk: [], access: [], lan: [], none: [] };
+    Object.entries(r).forEach(([name, role]) => {
+      by[role].push(name);
+      const s = document.createElement('span');
+      s.className = role;
+      s.textContent = short(name);
+      front.appendChild(s);
+    });
+    const parts = [];
+    const ok = by.wan.length === 1 && (by.trunk.length + by.access.length) > 0;
+    parts.push(by.wan.length ? 'WAN: ' + by.wan.join(', ') + '.' : 'Choose a WAN port.');
+    if (by.trunk.length) parts.push('Trunk: ' + by.trunk.join(', ') + '.');
+    if (by.access.length) parts.push('Hotspot untagged: ' + by.access.join(', ') + '.');
+    if (!by.trunk.length && !by.access.length) parts.push('Choose at least one trunk or hotspot port.');
+    parts.push(by.lan.length ? 'LAN: ' + by.lan.join(', ') + '.' : 'No LAN.');
+    summary.textContent = parts.join(' ');
+    summary.style.color = ok ? '' : 'var(--fail)';
+    if ($('lan-aside')) {
+      $('lan-aside').hidden = !by.lan.length;
+      $('lan-none').hidden = !!by.lan.length;
+    }
+  }
+
+  // Only one WAN: picking WAN on a port frees the previous WAN port.
+  rows.addEventListener('change', (e) => {
+    if (e.target.value === 'wan') {
+      rows.querySelectorAll('input[value=wan]:checked').forEach((i) => {
+        if (i !== e.target) rows.querySelector('input[name="' + i.name + '"][value=none]').checked = true;
+      });
+    }
+    update();
+  });
+
+  select.addEventListener('change', () => render(null));
+
+  detectBtn.addEventListener('click', async () => {
+    const v = (id) => $(id).value.trim();
+    if (!v('host') || !v('username') || !$('password').value) {
+      detectMsg.textContent = 'Fill in the IP address, API username and password first.';
+      return;
+    }
+    detectBtn.disabled = true;
+    detectMsg.textContent = 'Reading ports from ' + v('host') + '...';
+    try {
+      const res = await fetch(detectUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+        body: JSON.stringify({ host: v('host'), api_port: v('api_port'), use_ssl: $('use_ssl').checked, username: v('username'), password: $('password').value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Could not read the router.');
+
+      detected = data;
+      detectedInput.value = JSON.stringify(data);
+      let opt = select.querySelector('option[value=detected]');
+      if (!opt) { opt = document.createElement('option'); opt.value = 'detected'; select.insertBefore(opt, select.firstChild); }
+      opt.textContent = 'Read from router: ' + (data.board_name || 'unknown model') + ' (' + data.ports.length + ' ports)';
+      select.value = 'detected';
+      render(null);
+      detectMsg.textContent = 'Found ' + data.ports.length + ' ports on ' + (data.board_name || 'the router') + ', RouterOS ' + (data.ros_version || '?') + '.';
+    } catch (err) {
+      detectMsg.textContent = err.message;
+    } finally {
+      detectBtn.disabled = false;
+    }
+  });
+
+  document.querySelectorAll('input[id$="-id"][data-net]').forEach((idInput) => {
+    idInput.addEventListener('input', () => {
+      const nameInput = $('vlan-' + idInput.dataset.net + '-name');
+      const m = nameInput.value.match(/^vlan\d*-(.+)$/);
+      if (m && /^\d+$/.test(idInput.value)) nameInput.value = 'vlan' + idInput.value + '-' + m[1];
+    });
+  });
+
+  document.querySelectorAll('input[name=wan_mode]').forEach((r) => r.addEventListener('change', () => {
+    $('wan-static').hidden = document.querySelector('input[name=wan_mode]:checked').value !== 'static';
+  }));
+
+  const ssl = $('use_ssl'), port = $('api_port');
+  const plain = '{{ config('hotspot.api.port') }}', secure = '{{ config('hotspot.api.ssl_port') }}';
+  ssl.addEventListener('change', () => {
+    if ([plain, secure, ''].includes(port.value)) port.value = ssl.checked ? secure : plain;
+  });
+
+  render(Object.keys(oldRoles).length ? oldRoles : null);
+})();
 </script>
 @endsection

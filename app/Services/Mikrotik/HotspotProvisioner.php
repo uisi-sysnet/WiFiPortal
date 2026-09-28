@@ -6,32 +6,39 @@ use App\Models\MikrotikRouter;
 use RouterOS\Client;
 use RouterOS\Query;
 use RuntimeException;
+use Throwable;
 
 /**
- * Pushes the standard public-WiFi hotspot configuration to a MikroTik
- * through the RouterOS API (package: evilfreelancer/routeros-api-php).
+ * Pushes the public-WiFi setup to a MikroTik through the RouterOS API
+ * (package: evilfreelancer/routeros-api-php):
+ *
+ *   WAN port       -> internet (keep / DHCP client / static)
+ *   Trunk ports    -> bridge-trunk, tagged: hotspot, management and test VLANs
+ *   Hotspot ports  -> bridge-trunk, untagged in the hotspot VLAN (plain APs, wlan)
+ *   LAN ports      -> bridge-lan, untagged office network (optional)
  *
  * Every step is idempotent: objects are found by name or by a
- * "publicwifi:*" comment and updated in place, so running it again
- * repairs drift instead of creating duplicates.
+ * "publicwifi:*" comment and updated in place, so Re-apply repairs drift.
  */
 class HotspotProvisioner
 {
-    public const BRIDGE = 'bridge-hotspot';
-    public const POOL = 'pool-hotspot';
-    public const DHCP = 'dhcp-hotspot';
+    public const TRUNK = 'bridge-trunk';
+    public const LAN_BRIDGE = 'bridge-lan';
     public const SERVER_PROFILE = 'hsprof-publicwifi';
     public const SERVER = 'hotspot-publicwifi';
     public const TAG = 'publicwifi';
+
+    private const LABELS = ['hotspot' => 'Hotspot', 'mgmt' => 'Management', 'test' => 'Test', 'lan' => 'LAN'];
+    private const MGMT_PORTS = '21,22,23,8291,8728,8729';
 
     private ?Client $client = null;
     private array $log = [];
 
     /**
-     * Connects, reads basic facts and checks the chosen interfaces exist.
-     * Works on an unsaved model, so the add form can fail fast.
+     * Reads facts and the physical ports, marking which bridge each port is in
+     * and which port(s) carry the dashboard's own API connection.
      */
-    public function probe(MikrotikRouter $router): array
+    public function inspect(MikrotikRouter $router): array
     {
         $this->client = new Client([
             'host' => $router->host,
@@ -45,17 +52,36 @@ class HotspotProvisioner
 
         $resource = $this->rows(new Query('/system/resource/print'))[0] ?? [];
         $identity = $this->rows(new Query('/system/identity/print'))[0]['name'] ?? null;
-        $interfaces = array_column($this->rows(new Query('/interface/print')), 'name');
 
-        if ($router->wan_interface === $router->hotspot_interface) {
-            throw new RuntimeException('The WAN and hotspot interfaces must be different.');
+        $members = [];
+        foreach ($this->rows(new Query('/interface/bridge/port/print')) as $row) {
+            if (isset($row['interface'], $row['bridge'])) {
+                $members[$row['interface']] = $row['bridge'];
+            }
         }
-        foreach ([$router->wan_interface, $router->hotspot_interface] as $iface) {
-            if (! in_array($iface, $interfaces, true)) {
-                throw new RuntimeException(sprintf(
-                    'Interface "%s" was not found on the router. Available: %s',
-                    $iface, implode(', ', $interfaces)
-                ));
+
+        // Which interface holds the IP we are connected to? (null if behind NAT)
+        $apiIp = $this->apiIp($router);
+        $apiInterface = null;
+        foreach ($this->rows(new Query('/ip/address/print')) as $row) {
+            if (strtok((string) ($row['address'] ?? ''), '/') === $apiIp) {
+                $apiInterface = $row['interface'] ?? null;
+                break;
+            }
+        }
+
+        $ports = [];
+        foreach ($this->rows(new Query('/interface/ethernet/print')) as $row) {
+            $ports[] = $this->port($row['name'], $members, $apiInterface);
+        }
+        // Legacy wireless (v6 / v7 "wireless") and the v7 "wifi" package; either may be absent.
+        foreach (['/interface/wireless/print', '/interface/wifi/print'] as $menu) {
+            try {
+                foreach ($this->rows(new Query($menu)) as $row) {
+                    $ports[] = $this->port($row['name'], $members, $apiInterface, 'wireless');
+                }
+            } catch (Throwable) {
+                // package not installed on this router
             }
         }
 
@@ -63,6 +89,21 @@ class HotspotProvisioner
             'identity' => $identity,
             'board_name' => $resource['board-name'] ?? null,
             'ros_version' => $resource['version'] ?? null,
+            'api_interface' => $apiInterface,
+            'ports' => $ports,
+        ];
+    }
+
+    /** Inspect + check the chosen port roles are safe. Returns facts to store. */
+    public function probe(MikrotikRouter $router): array
+    {
+        $info = $this->inspect($router);
+        $this->checkPlan($router, $info);
+
+        return [
+            'identity' => $info['identity'],
+            'board_name' => $info['board_name'],
+            'ros_version' => $info['ros_version'],
         ];
     }
 
@@ -71,70 +112,206 @@ class HotspotProvisioner
         $this->log = [];
         $cfg = config('hotspot');
         $radius = ! empty($cfg['radius']['host']) && ! empty($cfg['radius']['secret']);
-        [, $prefix] = explode('/', $router->subnet);
 
-        $facts = $this->probe($router);
-        $this->step("Connected to {$facts['identity']} ({$facts['board_name']}, RouterOS {$facts['ros_version']})");
+        $info = $this->inspect($router);
+        $this->checkPlan($router, $info);
+        $ports = array_column($info['ports'], null, 'name');
+
+        $wan = $router->wan_interface;
+        $lanPorts = $router->portsWith('lan');
+        $trunkPorts = $router->portsWith('trunk');
+        $accessPorts = $router->portsWith('access');
+        $native = $router->mgmtNative();
+        $vlan = fn (string $net) => $router->vlan($net);
+
+        $this->step("Connected to {$info['identity']} ({$info['board_name']}, RouterOS {$info['ros_version']})");
 
         // Identity doubles as the RADIUS NAS-Identifier, so reports show the site name.
         $this->run((new Query('/system/identity/set'))->equal('name', $router->name));
-        $facts['identity'] = $router->name;
+        $facts = ['identity' => $router->name, 'board_name' => $info['board_name'], 'ros_version' => $info['ros_version']];
         $this->step("Router identity set to \"{$router->name}\"");
 
-        // 1. Bridge for the hotspot side (lets you add more APs/ports later)
-        $this->ensure('/interface/bridge', ['name' => self::BRIDGE], ['comment' => self::TAG.':bridge']);
-        $this->ensure('/interface/bridge/port',
-            ['interface' => $router->hotspot_interface],
-            ['bridge' => self::BRIDGE, 'comment' => self::TAG.':port']);
-        $this->step("Bridge ".self::BRIDGE." created with {$router->hotspot_interface}");
+        /* ---------- WAN ---------- */
 
-        // 2. Addressing from the allocated block
-        $this->ensure('/ip/address', ['comment' => self::TAG.':gateway'], [
-            'address' => "{$router->gateway}/{$prefix}",
-            'interface' => self::BRIDGE,
-        ]);
-        $this->ensure('/ip/pool', ['name' => self::POOL], [
-            'ranges' => "{$router->pool_start}-{$router->pool_end}",
-        ]);
-        $this->step("Gateway {$router->gateway}/{$prefix}, pool {$router->pool_start}-{$router->pool_end}");
+        if (! empty($ports[$wan]['bridge'])) {
+            $id = $this->rows((new Query('/interface/bridge/port/print'))->where('interface', $wan))[0]['.id'] ?? null;
+            if ($id) {
+                $this->run((new Query('/interface/bridge/port/remove'))->equal('.id', $id));
+            }
+            $this->step("Took {$wan} out of bridge {$ports[$wan]['bridge']} to use it as WAN");
+        }
 
-        // 3. DHCP with short leases for high client churn
-        $this->ensure('/ip/dhcp-server/network', ['comment' => self::TAG.':dhcp'], [
-            'address' => $router->subnet,
-            'gateway' => $router->gateway,
-            'dns-server' => $router->gateway,
-        ]);
-        $this->ensure('/ip/dhcp-server', ['name' => self::DHCP], [
-            'interface' => self::BRIDGE,
-            'address-pool' => self::POOL,
-            'lease-time' => $cfg['lease_time'],
-            'disabled' => 'no',
-        ]);
-        $this->step("DHCP server ".self::DHCP." enabled, lease {$cfg['lease_time']}");
+        match ($router->wan_mode) {
+            'dhcp' => $this->ensure('/ip/dhcp-client', ['interface' => $wan], [
+                'add-default-route' => 'yes',
+                'use-peer-dns' => 'no',
+                'disabled' => 'no',
+                'comment' => self::TAG.':wan',
+            ]),
+            'static' => (function () use ($router, $wan) {
+                $this->ensure('/ip/address', ['comment' => self::TAG.':wan'], [
+                    'address' => $router->wan_address,
+                    'interface' => $wan,
+                ]);
+                $this->ensure('/ip/route', ['comment' => self::TAG.':default-route'], [
+                    'dst-address' => '0.0.0.0/0',
+                    'gateway' => $router->wan_gateway,
+                ]);
+            })(),
+            default => null,
+        };
+        $this->step(match ($router->wan_mode) {
+            'dhcp' => "WAN {$wan}: DHCP client",
+            'static' => "WAN {$wan}: {$router->wan_address}, gateway {$router->wan_gateway}",
+            default => "WAN {$wan}: existing IP settings kept",
+        });
 
-        // 4. DNS cache on the router, NAT out the WAN
+        /* ---------- Trunk bridge with VLAN filtering ---------- */
+
+        // Created with filtering off; it is switched on once the VLAN table is complete.
+        $this->ensure('/interface/bridge', ['name' => self::TRUNK], ['comment' => self::TAG.':trunk']);
+
+        foreach ($trunkPorts as $port) {
+            $this->ensure('/interface/bridge/port', ['interface' => $port], [
+                'bridge' => self::TRUNK,
+                'pvid' => $native ? (string) $vlan('mgmt')['id'] : '1',
+                'frame-types' => $native ? 'admit-all' : 'admit-only-vlan-tagged',
+                'ingress-filtering' => 'yes',
+                'comment' => self::TAG.':trunk-port',
+            ]);
+        }
+        foreach ($accessPorts as $port) {
+            $this->ensure('/interface/bridge/port', ['interface' => $port], [
+                'bridge' => self::TRUNK,
+                'pvid' => (string) $vlan('hotspot')['id'],
+                'frame-types' => 'admit-only-untagged-and-priority-tagged',
+                'ingress-filtering' => 'yes',
+                'comment' => self::TAG.':hotspot-access-port',
+            ]);
+        }
+
+        // Bridge VLAN table. The bridge itself is tagged so the router can route each VLAN.
+        $tagged = fn (array $list) => implode(',', [self::TRUNK, ...$list]);
+        $table = [
+            'hotspot' => [$tagged($trunkPorts), implode(',', $accessPorts)],
+            'mgmt' => [$tagged($native ? [] : $trunkPorts), $native ? implode(',', $trunkPorts) : ''],
+            'test' => [$tagged($trunkPorts), ''],
+        ];
+        foreach ($table as $net => [$taggedPorts, $untaggedPorts]) {
+            $this->ensure('/interface/bridge/vlan', ['comment' => self::TAG.":vlan-{$net}"], [
+                'bridge' => self::TRUNK,
+                'vlan-ids' => (string) $vlan($net)['id'],
+                'tagged' => $taggedPorts,
+                'untagged' => $untaggedPorts,
+            ]);
+            $this->ensure('/interface/vlan', ['name' => $vlan($net)['name']], [
+                'interface' => self::TRUNK,
+                'vlan-id' => (string) $vlan($net)['id'],
+                'comment' => self::TAG.":vlan-{$net}",
+            ]);
+        }
+
+        $this->ensure('/interface/bridge', ['name' => self::TRUNK], ['vlan-filtering' => 'yes']);
+        $this->step(sprintf(
+            '%s: trunk %s, hotspot untagged %s. VLANs hotspot %d, management %d%s, test %d',
+            self::TRUNK,
+            $trunkPorts ? implode(', ', $trunkPorts) : 'none',
+            $accessPorts ? implode(', ', $accessPorts) : 'none',
+            $vlan('hotspot')['id'], $vlan('mgmt')['id'], $native ? ' (untagged on trunks)' : '', $vlan('test')['id']
+        ));
+
+        /* ---------- Optional untagged LAN bridge ---------- */
+
+        if ($lanPorts) {
+            $this->ensure('/interface/bridge', ['name' => self::LAN_BRIDGE], ['comment' => self::TAG.':lan-bridge']);
+            foreach ($lanPorts as $port) {
+                $this->ensure('/interface/bridge/port', ['interface' => $port],
+                    ['bridge' => self::LAN_BRIDGE, 'comment' => self::TAG.':lan-port']);
+            }
+            $this->step('LAN bridge '.self::LAN_BRIDGE.': '.implode(', ', $lanPorts));
+        }
+
+        /* ---------- Interface lists (keep the default firewall working) ---------- */
+
+        $lists = array_column($this->rows(new Query('/interface/list/print')), 'name');
+        if (in_array('LAN', $lists, true)) {
+            $internal = [$vlan('mgmt')['name'], $vlan('test')['name'], ...($lanPorts ? [self::LAN_BRIDGE] : [])];
+            foreach ($internal as $iface) {
+                $this->ensure('/interface/list/member', ['list' => 'LAN', 'interface' => $iface],
+                    ['comment' => self::TAG.':lan-list']);
+            }
+        }
+        if (in_array('WAN', $lists, true)) {
+            $this->ensure('/interface/list/member', ['list' => 'WAN', 'interface' => $wan],
+                ['comment' => self::TAG.':wan-list']);
+        }
+
+        /* ---------- Addressing and DHCP per network ---------- */
+
+        $networks = [
+            'hotspot' => [$vlan('hotspot')['name'], $cfg['lease_time']],
+            'mgmt' => [$vlan('mgmt')['name'], $cfg['mgmt_lease_time']],
+            'test' => [$vlan('test')['name'], $cfg['test_lease_time']],
+        ];
+        if ($lanPorts) {
+            $networks['lan'] = [self::LAN_BRIDGE, $cfg['lan_lease_time']];
+        }
+
+        foreach ($networks as $net => [$iface, $lease]) {
+            $n = $router->network($net);
+            [, $prefix] = explode('/', $n['subnet']);
+
+            $this->ensure('/ip/address', ['comment' => self::TAG.":gateway-{$net}"], [
+                'address' => "{$n['gateway']}/{$prefix}",
+                'interface' => $iface,
+            ]);
+            $this->ensure('/ip/pool', ['name' => "pool-{$net}"], [
+                'ranges' => "{$n['pool_start']}-{$n['pool_end']}",
+            ]);
+            $this->ensure('/ip/dhcp-server/network', ['comment' => self::TAG.":dhcp-{$net}"], [
+                'address' => $n['subnet'],
+                'gateway' => $n['gateway'],
+                'dns-server' => $n['gateway'],
+            ]);
+            $this->ensure('/ip/dhcp-server', ['name' => "dhcp-{$net}"], [
+                'interface' => $iface,
+                'address-pool' => "pool-{$net}",
+                'lease-time' => $lease,
+                'disabled' => 'no',
+            ]);
+            $this->ensure('/ip/firewall/nat', ['comment' => self::TAG.":masquerade-{$net}"], [
+                'chain' => 'srcnat', 'action' => 'masquerade',
+                'src-address' => $n['subnet'], 'out-interface' => $wan,
+            ]);
+            $this->step(sprintf('%s on %s: %s, gateway %s, DHCP %s-%s, lease %s',
+                self::LABELS[$net], $iface, $n['subnet'], $n['gateway'], $n['pool_start'], $n['pool_end'], $lease));
+        }
+
+        /* ---------- DNS and firewall ---------- */
+
         $this->run((new Query('/ip/dns/set'))
             ->equal('servers', $cfg['dns_servers'])
             ->equal('allow-remote-requests', 'yes'));
-        $this->ensure('/ip/firewall/nat', ['comment' => self::TAG.':masquerade'], [
-            'chain' => 'srcnat',
-            'action' => 'masquerade',
-            'src-address' => $router->subnet,
-            'out-interface' => $router->wan_interface,
-        ]);
-        $this->step("DNS ({$cfg['dns_servers']}) and NAT via {$router->wan_interface}");
 
-        // 5. Keep hotspot users away from the router's management services
-        $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.':protect-mgmt'], [
-            'chain' => 'input',
-            'in-interface' => self::BRIDGE,
-            'protocol' => 'tcp',
-            'dst-port' => '21,22,23,8291,8728,8729',
-            'action' => 'drop',
-        ]);
-        $this->step('Management ports blocked from the hotspot side');
+        // Hotspot and test VLANs may only reach the internet: nothing internal, and
+        // nothing internal may reach them. They cannot open Winbox/SSH/API on the router.
+        foreach (['hotspot', 'test'] as $net) {
+            $iface = $vlan($net)['name'];
+            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":isolate-{$net}-out"], [
+                'chain' => 'forward', 'in-interface' => $iface, 'out-interface' => '!'.$wan, 'action' => 'drop',
+            ]);
+            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":isolate-{$net}-in"], [
+                'chain' => 'forward', 'out-interface' => $iface, 'in-interface' => '!'.$wan, 'action' => 'drop',
+            ]);
+            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":protect-mgmt-{$net}"], [
+                'chain' => 'input', 'in-interface' => $iface, 'protocol' => 'tcp',
+                'dst-port' => self::MGMT_PORTS, 'action' => 'drop',
+            ]);
+        }
+        $this->step("DNS {$cfg['dns_servers']}. Hotspot and test VLANs reach only the internet; management VLAN can manage the router");
 
-        // 6. RADIUS: one central user database for every gateway
+        /* ---------- RADIUS ---------- */
+
         if ($radius) {
             $this->ensure('/radius', ['comment' => self::TAG.':radius'], [
                 'service' => 'hotspot',
@@ -144,14 +321,14 @@ class HotspotProvisioner
                 'accounting-port' => (string) $cfg['radius']['acct_port'],
                 'timeout' => $cfg['radius']['timeout'],
             ]);
-            // Allows the dashboard/RADIUS to disconnect users (CoA / Disconnect-Request)
             $this->run((new Query('/radius/incoming/set'))->equal('accept', 'yes'));
             $this->step("RADIUS client pointed at {$cfg['radius']['host']}");
         } else {
             $this->step('RADIUS_HOST not set: users must be created on this router locally');
         }
 
-        // 7. Hotspot server profile
+        /* ---------- Hotspot on the hotspot VLAN ---------- */
+
         $this->ensure('/ip/hotspot/profile', ['name' => self::SERVER_PROFILE], [
             'hotspot-address' => $router->gateway,
             'dns-name' => $cfg['dns_name'],
@@ -161,8 +338,6 @@ class HotspotProvisioner
             'radius-interim-update' => $cfg['radius']['interim_update'],
             'nas-port-type' => 'wireless-802.11',
         ]);
-
-        // 8. Default user profile (RADIUS users without a group land here)
         $this->ensure('/ip/hotspot/user/profile', ['name' => 'default'], [
             'shared-users' => '1',
             'rate-limit' => $cfg['rate_limit'],
@@ -171,17 +346,14 @@ class HotspotProvisioner
             'add-mac-cookie' => 'yes',
             'mac-cookie-timeout' => $cfg['mac_cookie_timeout'],
         ]);
-
-        // 9. Hotspot server on the bridge
         $this->ensure('/ip/hotspot', ['name' => self::SERVER], [
-            'interface' => self::BRIDGE,
+            'interface' => $vlan('hotspot')['name'],
             'profile' => self::SERVER_PROFILE,
             'idle-timeout' => $cfg['idle_timeout'],
             'disabled' => 'no',
         ]);
-        $this->step("Hotspot ".self::SERVER." running at http://{$cfg['dns_name']}, {$cfg['rate_limit']} per user");
+        $this->step('Hotspot '.self::SERVER.' on '.$vlan('hotspot')['name']." at http://{$cfg['dns_name']}, {$cfg['rate_limit']} per user");
 
-        // 10. Walled garden (pages reachable before login)
         foreach ($cfg['walled_garden'] as $host) {
             $this->ensure('/ip/hotspot/walled-garden', ['comment' => self::TAG.':wg:'.$host], [
                 'dst-host' => $host,
@@ -203,8 +375,92 @@ class HotspotProvisioner
     }
 
     /**
-     * Find an object by $match; update it with $attrs if it exists, add it otherwise.
+     * Refuses plans that reference missing ports or would cut the dashboard's
+     * own connection to the router halfway through.
      */
+    private function checkPlan(MikrotikRouter $router, array $info): void
+    {
+        $roles = $router->port_roles ?? [];
+        $ports = array_column($info['ports'], null, 'name');
+
+        foreach ($roles as $port => $role) {
+            if ($role !== 'none' && ! isset($ports[$port])) {
+                throw new RuntimeException(sprintf(
+                    'Port "%s" does not exist on this router. It has: %s. Use "Read ports from router" to get the right list.',
+                    $port, implode(', ', array_keys($ports))
+                ));
+            }
+        }
+        if (count($router->portsWith('wan')) !== 1) {
+            throw new RuntimeException('Choose exactly one WAN port.');
+        }
+        if (! $router->portsWith('trunk') && ! $router->portsWith('access')) {
+            throw new RuntimeException('Choose at least one trunk or hotspot port.');
+        }
+
+        $api = $info['api_interface'];
+        if ($api === null) {
+            return; // connected through NAT or a hostname we can't match: nothing to check
+        }
+
+        // Ports whose bridge membership changes during provisioning
+        $moved = [];
+        foreach ($roles as $port => $role) {
+            $current = $ports[$port]['bridge'] ?? null;
+            $target = match ($role) { 'lan' => self::LAN_BRIDGE, 'trunk', 'access' => self::TRUNK, default => null };
+            if (($target && $current !== $target) || ($role === 'wan' && $current)) {
+                $moved[] = $port;
+            }
+        }
+
+        if (in_array($api, $moved, true)) {
+            throw new RuntimeException(
+                "The dashboard connects to this router through {$api}, and that port would be moved into a bridge, ".
+                "cutting the connection. Set {$api} as WAN or Not used, or connect to the router through its WAN address."
+            );
+        }
+
+        $apiBridgePorts = array_keys(array_filter($ports, fn ($p) => ($p['bridge'] ?? null) === $api));
+        if ($apiBridgePorts && ! array_diff($apiBridgePorts, $moved)) {
+            throw new RuntimeException(
+                "The dashboard connects through {$api} ({$router->host}), and every port of that bridge would be moved ".
+                '('.implode(', ', $apiBridgePorts).'). Leave the port the server is plugged into as Not used, '.
+                'or connect to the router through its WAN address.'
+            );
+        }
+
+        if ($router->wan_mode === 'static' && $api === $router->wan_interface
+            && strtok((string) $router->wan_address, '/') !== $this->apiIp($router)) {
+            throw new RuntimeException(
+                "The dashboard connects through the WAN port, and the new static address would replace {$router->host}. ".
+                'Choose "Keep current settings" for WAN, or use the address the dashboard connects to.'
+            );
+        }
+    }
+
+    private function port(string $name, array $members, ?string $api, ?string $type = null): array
+    {
+        $type ??= match (true) {
+            str_starts_with($name, 'sfp'), str_starts_with($name, 'qsfp') => 'sfp',
+            str_starts_with($name, 'combo') => 'combo',
+            default => 'ethernet',
+        };
+        $bridge = $members[$name] ?? null;
+
+        return [
+            'name' => $name,
+            'type' => $type,
+            'bridge' => $bridge,
+            'api' => $api !== null && ($name === $api || $bridge === $api),
+        ];
+    }
+
+    private function apiIp(MikrotikRouter $router): string
+    {
+        return filter_var($router->host, FILTER_VALIDATE_IP) ? $router->host : gethostbyname($router->host);
+    }
+
+    /** Find an object by $match; update it with $attrs if it exists, add it otherwise. */
     private function ensure(string $menu, array $match, array $attrs): void
     {
         $find = new Query("{$menu}/print");

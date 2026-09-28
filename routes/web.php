@@ -16,6 +16,10 @@ Route::middleware('auth')->group(function () {
 
     Route::redirect('/', '/routers');
 
+    Route::post('/routers/detect', [RouterController::class, 'detect'])
+        ->middleware('throttle:20,1')
+        ->name('routers.detect');
+
     Route::resource('routers', RouterController::class)
         ->only(['index', 'create', 'store', 'show', 'destroy']);
 

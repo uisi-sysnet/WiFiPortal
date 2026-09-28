@@ -19,6 +19,30 @@ return [
     'supernet' => env('HOTSPOT_SUPERNET', '10.64.0.0/10'),
     'site_prefix' => (int) env('HOTSPOT_SITE_PREFIX', 20),
 
+    // VLANs on the trunk bridge. These are the defaults shown on the
+    // Add router page; each router can use its own IDs and interface names.
+    'vlans' => [
+        'hotspot' => ['id' => (int) env('VLAN_HOTSPOT_ID', 10), 'name' => env('VLAN_HOTSPOT_NAME', 'vlan10-hotspot')],
+        'mgmt' => ['id' => (int) env('VLAN_MGMT_ID', 99), 'name' => env('VLAN_MGMT_NAME', 'vlan99-mgmt')],
+        'test' => ['id' => (int) env('VLAN_TEST_ID', 20), 'name' => env('VLAN_TEST_NAME', 'vlan20-test')],
+    ],
+    // Send management untagged (native VLAN) on trunk ports, for APs that boot untagged.
+    'mgmt_native' => (bool) env('VLAN_MGMT_NATIVE', false),
+
+    // One /24 per router from each plan, same block number as the hotspot /20.
+    // Each /14 holds 1,024 /24s, matching the 1,024 hotspot blocks.
+    'lan_supernet' => env('LAN_SUPERNET', '172.16.0.0/14'),    // untagged office LAN (optional)
+    'lan_prefix' => (int) env('LAN_PREFIX', 24),
+    'lan_lease_time' => env('LAN_LEASE_TIME', '1d'),
+
+    'mgmt_supernet' => env('MGMT_SUPERNET', '172.20.0.0/14'),  // APs, switches, CCTV
+    'mgmt_prefix' => (int) env('MGMT_PREFIX', 24),
+    'mgmt_lease_time' => env('MGMT_LEASE_TIME', '1d'),
+
+    'test_supernet' => env('TEST_SUPERNET', '172.24.0.0/14'),  // technicians, internet without login
+    'test_prefix' => (int) env('TEST_PREFIX', 24),
+    'test_lease_time' => env('TEST_LEASE_TIME', '1h'),
+
     'dns_name' => env('HOTSPOT_DNS_NAME', 'login.wifi'),
     'dns_servers' => env('HOTSPOT_DNS_SERVERS', '1.1.1.1,8.8.8.8'),
 
