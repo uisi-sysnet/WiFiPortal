@@ -78,6 +78,57 @@ All objects are tagged `publicwifi:*` or use fixed names, so Re-apply updates in
 | Hotspot | on the hotspot VLAN interface, CHAP + MAC cookie, 1 device per account |
 | Walled garden | hosts from `HOTSPOT_WALLED_GARDEN` |
 
+## Adding a router
+
+1. Fill in the API connection and press **Test API connection**. "Add and configure router"
+   stays disabled until a test succeeds; "Read ports from router" also counts as a test.
+2. Changing the IP, port, SSL, username or password afterwards cancels the test.
+3. The server enforces the same rule: it stores an HMAC fingerprint of the tested details in
+   the session (valid 15 minutes) and refuses to save a router whose details don't match.
+
+## Hotspot login page
+
+Chosen per router on the Add router page:
+
+| Option | What happens |
+|---|---|
+| Splash page from this system | Router's `login.html` forwards phones to `PORTAL_URL/portal/{code}` |
+| Custom URL | Same forwarder, pointed at your external portal |
+| Router's built-in page | MikroTik's own page, nothing changed |
+
+For the first two, provisioning downloads `login.html` from this app with `/tool fetch`,
+adds the portal host to the walled garden (HTTP and IP), and enables `http-pap`.
+
+### Splash page flow
+
+1. Phone joins the hotspot SSID and opens any site; the router serves `login.html`.
+2. `login.html` sends the phone to the splash page with `mac`, `ip`, `link-login-only`, `link-orig`.
+3. Visitor enters full name + mobile number or email; a resident ticks "I'm a resident"
+   and enters only the citizen ID. Checked in the browser and again on the server.
+4. "Log in" opens the Terms pop-up. "I agree, connect me" submits.
+5. The app records the registration (`hotspot_guests`, with a hash of the accepted Terms),
+   creates the credentials, and redirects to the router's login link. Router logs the phone in.
+
+Credentials: username `mac-<device mac>` with a fresh random password each time.
+With `RADIUS_HOST` set they go into `radcheck` for FreeRADIUS; without it they are created
+as local hotspot users on that router through the API (fine for testing, not for scale).
+
+### Validation
+
+- **Name:** letters only (accents and ñ allowed), first and last name, no numbers or symbols
+  except `.` `'` `-` inside names (Ma., O'Brien, Santos-Reyes). Rejects keyboard mashing
+  (asdfg, qwert), repeated letters or syllables (aaa, hahaha), words without vowels, long
+  consonant runs, and anything in the editable blocked list.
+- **Mobile:** Philippine mobile numbers, 09XX XXX XXXX, +639XX..., 639XX...; stored as +639XXXXXXXXX.
+- **Email:** RFC format plus a DNS check that the domain exists.
+- **Citizen ID:** must fully match the format set in the editor (regular expression).
+
+### Editing
+
+**Splash page** in the menu: page HTML (with `[[form]]`, `[[site_name]]`, `[[router_name]]`,
+`[[location]]`), Terms in Markdown, resident ID label/format/help, blocked names, and an
+optional page to open after login. **Preview in new tab** shows unsaved changes.
+
 ## Ports and models
 
 Each port gets a role: WAN (exactly one), Trunk, Hotspot (untagged), LAN, or Not used.

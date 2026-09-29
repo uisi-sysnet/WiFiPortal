@@ -27,8 +27,8 @@ a{color:var(--signal)}
 .topbar nav a{color:#B9C9C2;text-decoration:none;padding:4px 0;border-bottom:2px solid transparent}
 .topbar nav a:hover{color:#fff}
 .topbar nav a[aria-current="page"]{color:#fff;border-bottom-color:var(--signal)}
-.topbar .who{color:#B9C9C2;font-size:.9rem}
-.topbar form button{background:none;border:1px solid #4A5E6A;color:#fff;border-radius:4px;padding:5px 12px;font:inherit;font-size:.9rem;cursor:pointer}
+.topbar .dm{--dm-link:#B9C9C2;--dm-link-active:#fff;--dm-accent:var(--signal)}
+.topbar .acct{--acct-trigger:#fff;--acct-trigger-line:#4A5E6A;--acct-avatar-bg:#24394A}
 
 main{max-width:1100px;margin:0 auto;padding:36px 24px 72px}
 .page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:24px;flex-wrap:wrap}
@@ -57,7 +57,13 @@ td small{display:block;color:var(--ink-2)}
 .status.online{color:var(--signal)}
 .status.pending,.status.provisioning{color:var(--warn)}
 .status.provisioning::before{animation:pulse 1.2s ease-in-out infinite}
-.status.failed{color:var(--fail)}
+.status.failed,.status.offline{color:var(--fail)}
+.status.unknown{color:var(--ink-2)}
+.counts{display:flex;flex-wrap:wrap;gap:20px;margin:0 0 16px}
+.row-actions{display:flex;gap:8px;justify-content:flex-end}
+.row-actions form{margin:0}
+.btn.sm{padding:5px 10px;font-size:.85rem}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @keyframes pulse{50%{opacity:.3}}
 @media (prefers-reduced-motion:reduce){.status.provisioning::before{animation:none}}
 
@@ -110,23 +116,22 @@ input[aria-invalid="true"]{border-color:var(--fail)}
   .aside{position:static}
   .row{grid-template-columns:1fr}
   .topbar{flex-wrap:wrap;gap:12px 20px;padding:12px 18px}
-  .topbar .who{display:none}
 }
 </style>
 </head>
 <body class="@yield('body-class')">
 @auth
 <header class="topbar">
-  <a class="brand" href="{{ route('routers.index') }}">
+  <a class="brand" href="{{ route('dashboard') }}">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3FC1A0" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16.3a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1.2" fill="#3FC1A0" stroke="none"/></svg>
     Public WiFi Control
   </a>
   <nav aria-label="Main">
-    <a href="{{ route('routers.index') }}" @if(request()->routeIs('routers.index','routers.show')) aria-current="page" @endif>Routers</a>
-    <a href="{{ route('routers.create') }}" @if(request()->routeIs('routers.create')) aria-current="page" @endif>Add router</a>
+    <a href="{{ route('dashboard') }}" @if(request()->routeIs('dashboard')) aria-current="page" @endif>Dashboard</a>
+    @include('partials.devices-menu')
+    <a href="{{ route('splash.edit') }}" @if(request()->routeIs('splash.*')) aria-current="page" @endif>Captive portal</a>
   </nav>
-  <span class="who">{{ auth()->user()->email }}</span>
-  <form method="POST" action="{{ route('logout') }}">@csrf<button type="submit">Sign out</button></form>
+  @include('partials.account-menu')
 </header>
 @endauth
 <main>

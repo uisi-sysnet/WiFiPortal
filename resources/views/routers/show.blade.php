@@ -39,6 +39,10 @@
   <div><dt>Model</dt><dd>{{ $router->modelLabel() }}</dd></div>
   <div><dt>RouterOS</dt><dd>{{ $router->ros_version ?? 'Unknown' }}</dd></div>
   <div><dt>API</dt><dd class="mono">{{ $router->host }}:{{ $router->api_port }}{{ $router->use_ssl ? ' (SSL)' : '' }}</dd></div>
+  <div><dt>Login page</dt><dd>{{ $router->loginModeLabel() }}
+    @if ($router->login_mode === 'portal')<small style="display:block;font-weight:400"><a href="{{ route('splash.edit') }}">Edit splash page</a></small>
+    @elseif ($router->login_mode === 'custom')<small class="mono" style="display:block;font-weight:400;word-break:break-all">{{ $router->login_url }}</small>@endif
+  </dd></div>
   <div><dt>WAN</dt><dd><span class="mono">{{ $router->wan_interface }}</span>, {{ match ($router->wan_mode) { 'dhcp' => 'DHCP from ISP', 'static' => $router->wan_address, default => 'existing settings' } }}</dd></div>
 </dl>
 

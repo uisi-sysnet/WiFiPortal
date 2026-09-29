@@ -17,6 +17,12 @@ use Throwable;
 
 class RouterController extends Controller
 {
+    /** Session key holding the last successful API test. */
+    private const TEST_KEY = 'router_api_test';
+
+    /** How long a passed test stays valid, in seconds. */
+    private const TEST_TTL = 900;
+
     public function index(SubnetAllocator $allocator)
     {
         return view('routers.index', [
@@ -41,17 +47,42 @@ class RouterController extends Controller
         ]);
     }
 
-    /** AJAX: read the real port list from a router before it is saved. */
+    /** AJAX: the "Test API connection" button. A success unlocks Add and configure. */
+    public function testConnection(Request $request, HotspotProvisioner $provisioner)
+    {
+        $data = $request->validate($this->connectionRules());
+        $data['use_ssl'] = $request->boolean('use_ssl');
+        $router = new MikrotikRouter($data);
+
+        try {
+            $facts = $provisioner->testConnection($router);
+        } catch (Throwable $e) {
+            $request->session()->forget(self::TEST_KEY);
+
+            return response()->json(['message' => HotspotProvisioner::explain($e, $router)], 422);
+        }
+
+        $this->rememberTest($request);
+
+        return response()->json($facts);
+    }
+
+    /** AJAX: read the real port list from a router before it is saved. Also counts as a passed test. */
     public function detect(Request $request, HotspotProvisioner $provisioner)
     {
         $data = $request->validate($this->connectionRules());
         $data['use_ssl'] = $request->boolean('use_ssl');
+        $router = new MikrotikRouter($data);
 
         try {
-            $info = $provisioner->inspect(new MikrotikRouter($data));
+            $info = $provisioner->inspect($router);
         } catch (Throwable $e) {
-            return response()->json(['message' => 'Could not read the router: '.$e->getMessage()], 422);
+            $request->session()->forget(self::TEST_KEY);
+
+            return response()->json(['message' => 'Could not read the router: '.HotspotProvisioner::explain($e, $router)], 422);
         }
+
+        $this->rememberTest($request);
 
         return response()->json(Arr::except($info, ['api_interface']));
     }
@@ -70,10 +101,19 @@ class RouterController extends Controller
             'wan_gateway' => ['exclude_unless:wan_mode,static', 'required', 'ipv4'],
             ...$this->vlanRules(),
             'mgmt_native' => ['sometimes', 'boolean'],
+            'login_mode' => ['required', Rule::in(array_keys(MikrotikRouter::LOGIN_MODES))],
+            'login_url' => ['exclude_unless:login_mode,custom', 'required', 'url:http,https', 'max:255'],
         ], [
             'name.regex' => 'Use letters, numbers, spaces, dots, dashes or underscores.',
             'ports.required' => 'Choose a router model or read the ports from the router.',
         ]);
+
+        // The connection must have been tested successfully with exactly these details.
+        if (! $this->passedTest($request)) {
+            throw ValidationException::withMessages([
+                'host' => 'Test the API connection and make sure it succeeds before adding the router.',
+            ]);
+        }
 
         $roles = $data['ports'];
         foreach (array_keys($roles) as $port) {
@@ -106,7 +146,7 @@ class RouterController extends Controller
         } catch (Throwable $e) {
             return back()
                 ->withInput($request->except('password'))
-                ->withErrors(['host' => 'Could not use this router: '.$e->getMessage()]);
+                ->withErrors(['host' => 'Could not use this router: '.HotspotProvisioner::explain($e, $router)]);
         }
 
         try {
@@ -122,6 +162,7 @@ class RouterController extends Controller
                 ->withErrors(['name' => $e->getMessage()]);
         }
 
+        $request->session()->forget(self::TEST_KEY);
         ProvisionHotspot::dispatch($router);
 
         return redirect()
@@ -152,6 +193,38 @@ class RouterController extends Controller
         return redirect()
             ->route('routers.index')
             ->with('status', "{$name} removed and its subnets returned to the address plan. The router itself was not changed.");
+    }
+
+    /**
+     * A fingerprint of the connection details, keyed with APP_KEY so the
+     * password never sits in the session in a reversible form.
+     */
+    private function fingerprint(Request $request): string
+    {
+        return hash_hmac('sha256', implode("\n", [
+            strtolower(trim((string) $request->input('host'))),
+            (int) $request->input('api_port'),
+            $request->boolean('use_ssl') ? 'ssl' : 'plain',
+            (string) $request->input('username'),
+            (string) $request->input('password'),
+        ]), (string) config('app.key'));
+    }
+
+    private function rememberTest(Request $request): void
+    {
+        $request->session()->put(self::TEST_KEY, [
+            'fingerprint' => $this->fingerprint($request),
+            'at' => now()->getTimestamp(),
+        ]);
+    }
+
+    private function passedTest(Request $request): bool
+    {
+        $test = $request->session()->get(self::TEST_KEY);
+
+        return is_array($test)
+            && now()->getTimestamp() - (int) $test['at'] <= self::TEST_TTL
+            && hash_equals((string) $test['fingerprint'], $this->fingerprint($request));
     }
 
     private function connectionRules(): array

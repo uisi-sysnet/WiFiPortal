@@ -43,6 +43,10 @@ return [
     'test_prefix' => (int) env('TEST_PREFIX', 24),
     'test_lease_time' => env('TEST_LEASE_TIME', '1h'),
 
+    // Public address of this Laravel app as routers and phones reach it
+    // (e.g. https://wifi.example.gov.ph). Used for the splash page and login.html.
+    'portal_url' => env('PORTAL_URL', env('APP_URL')),
+
     'dns_name' => env('HOTSPOT_DNS_NAME', 'login.wifi'),
     'dns_servers' => env('HOTSPOT_DNS_SERVERS', '1.1.1.1,8.8.8.8'),
 
@@ -51,6 +55,28 @@ return [
     'idle_timeout' => env('HOTSPOT_IDLE_TIMEOUT', '5m'),
     'keepalive_timeout' => env('HOTSPOT_KEEPALIVE_TIMEOUT', '2m'),
     'session_timeout' => env('HOTSPOT_SESSION_TIMEOUT', '4h'),
+
+    // Each registration gets its own generated username and password, locked to
+    // the phone's MAC. They are deleted this many hours later; the user then
+    // registers again. Prefix and length shape usernames like "wifi-k7m2p9qx".
+    'credential_hours' => (int) env('HOTSPOT_CREDENTIAL_HOURS', 24),
+    'username_prefix' => env('HOTSPOT_USERNAME_PREFIX', 'wifi-'),
+
+    // Photos and videos on the advertisement page. Phones are not logged in yet
+    // when they load it, so everything is sized for a slow link (budget_kbps).
+    'media' => [
+        'budget_kbps' => (int) env('PORTAL_MEDIA_BUDGET_KBPS', 1000), // 1 Mbps per user before login
+        'image_max_width' => 1080,                                    // phone screens
+        'image_target_kb' => 180,                                     // about 1.5 s at 1 Mbps
+        'image_upload_max_mb' => 15,
+
+        // With ffmpeg, any video is re-encoded to 640 px, about 500 kbps, max 30 s.
+        // Without it, only MP4s up to video_raw_max_mb are accepted, unchanged.
+        'ffmpeg' => env('FFMPEG_PATH'),                               // e.g. C:\ffmpeg\bin\ffmpeg.exe or /usr/bin/ffmpeg
+        'video_max_seconds' => 30,
+        'video_upload_max_mb' => 100,
+        'video_raw_max_mb' => 2,
+    ],
 
     // MikroTik format is upload/download from the client's view: "rx/tx".
     'rate_limit' => env('HOTSPOT_RATE_LIMIT', '5M/10M'),

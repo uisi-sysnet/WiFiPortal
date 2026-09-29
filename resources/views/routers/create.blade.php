@@ -8,6 +8,16 @@
 .model-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
 select{font:inherit;width:100%;padding:9px 11px;border:1px solid #A7B4AD;border-radius:4px;background:#fff;color:var(--ink)}
 #detect-msg{min-height:1.5em}
+.test-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding-top:4px;margin-bottom:18px}
+#test-msg{margin:0;font-size:.92rem;color:var(--ink-2)}
+#test-msg.ok{color:var(--signal);font-weight:600}
+#test-msg.bad{color:var(--fail)}
+#test-msg.ok::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:currentColor;margin-right:8px;vertical-align:1px}
+.btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+#submit-hint{margin:0;font-size:.9rem;color:var(--ink-2)}
+.login-modes{display:grid;gap:12px}
+.login-modes .check{align-items:flex-start}
+.login-modes .check input{margin-top:3px}
 
 /* Front panel: one block per port, coloured by role */
 .front{display:flex;flex-wrap:wrap;gap:4px;padding:12px;background:#1E2F3A;border-radius:4px;margin:4px 0 12px}
@@ -105,6 +115,10 @@ table.vlans td.mono{color:var(--ink-2)}
           @error('password')<p class="error" id="password-error">{{ $message }}</p>@enderror
         </div>
       </div>
+      <div class="test-row">
+        <button type="button" id="test-conn" class="btn quiet">Test API connection</button>
+        <p id="test-msg" aria-live="polite">Required before the router can be added.</p>
+      </div>
     </fieldset>
 
     <fieldset>
@@ -184,6 +198,26 @@ table.vlans td.mono{color:var(--ink-2)}
     </fieldset>
 
     <fieldset>
+      <legend>Hotspot login page</legend>
+      @php $loginMode = old('login_mode', 'portal'); @endphp
+      <div class="login-modes" role="radiogroup" aria-label="Login page">
+        <label class="check"><input type="radio" name="login_mode" value="portal" @checked($loginMode === 'portal')>
+          <span>Splash page from this system<small class="hint" style="display:block;font-weight:400">Registration form with resident ID, Terms pop-up. <a href="{{ route('splash.edit') }}" target="_blank">Edit splash page</a></small></span></label>
+        <label class="check"><input type="radio" name="login_mode" value="custom" @checked($loginMode === 'custom')>
+          <span>Custom URL<small class="hint" style="display:block;font-weight:400">Your own external login or splash page</small></span></label>
+        <label class="check"><input type="radio" name="login_mode" value="builtin" @checked($loginMode === 'builtin')>
+          <span>Router's built-in page<small class="hint" style="display:block;font-weight:400">MikroTik's standard username and password page</small></span></label>
+      </div>
+      <div class="field" id="login-url-field" @if($loginMode !== 'custom') hidden @endif style="margin-top:14px">
+        <label for="login_url">External login page URL</label>
+        <input id="login_url" name="login_url" type="text" class="mono" value="{{ old('login_url') }}" placeholder="https://portal.example.com/login" {!! $err('login_url') !!}>
+        <p class="hint">Receives <span class="mono">mac</span>, <span class="mono">ip</span>, <span class="mono">link-login-only</span>, <span class="mono">link-orig</span>, <span class="mono">chap-id</span>, <span class="mono">chap-challenge</span> and <span class="mono">error</span> as query parameters. Its host is allowed before login.</p>
+        @error('login_url')<p class="error" id="login_url-error">{{ $message }}</p>@enderror
+      </div>
+      <p class="hint" style="margin:12px 0 18px">For the splash page and custom URL, the router downloads its <span class="mono">login.html</span> from <span class="mono">{{ config('hotspot.portal_url') }}</span>, so the router must be able to reach that address.</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Internet (WAN) settings</legend>
       @php $wanMode = old('wan_mode', 'keep'); @endphp
       <div class="choice" role="radiogroup" aria-label="WAN address">
@@ -207,8 +241,9 @@ table.vlans td.mono{color:var(--ink-2)}
     </fieldset>
 
     <div class="actions">
-      <button class="btn" type="submit">Add and configure router</button>
+      <button class="btn" type="submit" id="submit-btn" disabled aria-describedby="submit-hint">Add and configure router</button>
       <a class="btn quiet" href="{{ route('routers.index') }}">Cancel</a>
+      <p id="submit-hint">Test the API connection first.</p>
     </div>
   </div>
 
@@ -248,6 +283,77 @@ table.vlans td.mono{color:var(--ink-2)}
   const $ = (id) => document.getElementById(id);
   const select = $('model'), rows = $('port-rows'), front = $('front'), summary = $('port-summary');
   const detectedInput = $('detected'), detectBtn = $('detect'), detectMsg = $('detect-msg');
+
+  const testBtn = $('test-conn'), testMsg = $('test-msg'), submitBtn = $('submit-btn'), submitHint = $('submit-hint');
+  const CONN_FIELDS = ['host', 'api_port', 'use_ssl', 'username', 'password'];
+  let tested = false;
+
+  function connectionBody() {
+    return {
+      host: $('host').value.trim(), api_port: $('api_port').value.trim(), use_ssl: $('use_ssl').checked,
+      username: $('username').value.trim(), password: $('password').value,
+    };
+  }
+
+  function setTested(ok, message) {
+    tested = ok;
+    submitBtn.disabled = !ok;
+    submitHint.hidden = ok;
+    testMsg.className = ok ? 'ok' : (message ? 'bad' : '');
+    testMsg.textContent = message || 'Required before the router can be added.';
+  }
+
+  async function postConnection(url) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify(connectionBody()),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const firstError = data.errors ? Object.values(data.errors)[0][0] : null;
+      throw new Error(firstError || data.message || 'The router did not answer.');
+    }
+    return data;
+  }
+
+  testBtn.addEventListener('click', async () => {
+    const b = connectionBody();
+    if (!b.host || !b.username || !b.password) {
+      setTested(false, 'Fill in the IP address, API username and password first.');
+      return;
+    }
+    testBtn.disabled = true;
+    testMsg.className = '';
+    testMsg.textContent = 'Connecting to ' + b.host + ':' + b.api_port + '...';
+    try {
+      const d = await postConnection(@json(route('routers.test-connection')));
+      setTested(true, 'Connected to ' + (d.identity || 'router') + ', ' + (d.board_name || 'unknown model')
+        + ', RouterOS ' + (d.ros_version || '?') + (d.uptime ? ', up ' + d.uptime : '') + '.');
+    } catch (err) {
+      setTested(false, err.message);
+    } finally {
+      testBtn.disabled = false;
+    }
+  });
+
+  // Any change to the connection details means the earlier test no longer counts.
+  CONN_FIELDS.forEach((id) => {
+    const el = $(id);
+    const evt = el.type === 'checkbox' ? 'change' : 'input';
+    el.addEventListener(evt, () => {
+      if (tested) setTested(false, 'Connection details changed. Test again.');
+    });
+  });
+
+  // Enter key or a re-enabled button through dev tools: still blocked here, and by the server.
+  $('router-form').addEventListener('submit', (e) => {
+    if (!tested) {
+      e.preventDefault();
+      setTested(false, 'Test the API connection before adding the router.');
+      testBtn.focus();
+    }
+  });
 
   let detected = null;
   try { detected = JSON.parse(detectedInput.value || 'null'); } catch (e) {}
@@ -360,21 +466,17 @@ table.vlans td.mono{color:var(--ink-2)}
   select.addEventListener('change', () => render(null));
 
   detectBtn.addEventListener('click', async () => {
-    const v = (id) => $(id).value.trim();
-    if (!v('host') || !v('username') || !$('password').value) {
+    const b = connectionBody();
+    if (!b.host || !b.username || !b.password) {
       detectMsg.textContent = 'Fill in the IP address, API username and password first.';
       return;
     }
     detectBtn.disabled = true;
-    detectMsg.textContent = 'Reading ports from ' + v('host') + '...';
+    detectMsg.textContent = 'Reading ports from ' + b.host + '...';
     try {
-      const res = await fetch(detectUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
-        body: JSON.stringify({ host: v('host'), api_port: v('api_port'), use_ssl: $('use_ssl').checked, username: v('username'), password: $('password').value }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Could not read the router.');
+      const data = await postConnection(detectUrl);
+      setTested(true, 'Connected to ' + (data.identity || 'router') + ', ' + (data.board_name || 'unknown model')
+        + ', RouterOS ' + (data.ros_version || '?') + '.');
 
       detected = data;
       detectedInput.value = JSON.stringify(data);
@@ -386,6 +488,7 @@ table.vlans td.mono{color:var(--ink-2)}
       detectMsg.textContent = 'Found ' + data.ports.length + ' ports on ' + (data.board_name || 'the router') + ', RouterOS ' + (data.ros_version || '?') + '.';
     } catch (err) {
       detectMsg.textContent = err.message;
+      setTested(false, err.message);
     } finally {
       detectBtn.disabled = false;
     }
@@ -398,6 +501,10 @@ table.vlans td.mono{color:var(--ink-2)}
       if (m && /^\d+$/.test(idInput.value)) nameInput.value = 'vlan' + idInput.value + '-' + m[1];
     });
   });
+
+  document.querySelectorAll('input[name=login_mode]').forEach((r) => r.addEventListener('change', () => {
+    $('login-url-field').hidden = document.querySelector('input[name=login_mode]:checked').value !== 'custom';
+  }));
 
   document.querySelectorAll('input[name=wan_mode]').forEach((r) => r.addEventListener('change', () => {
     $('wan-static').hidden = document.querySelector('input[name=wan_mode]:checked').value !== 'static';

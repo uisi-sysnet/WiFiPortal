@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>[[site_name]]</title>
+<style>
+  /* System fonts and inline images only: nothing outside the walled
+     garden loads before the user is connected. --accent themes the button. */
+  :root { --ink: #16242E; --accent: #0E7C66; --paper: #EEF2F0; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 480px; margin: 0 auto; padding: 24px 16px 32px; }
+  .brand { margin: 0 0 16px; font-weight: 700; font-size: 1.05rem; }
+  .ad {
+    position: relative; overflow: hidden; border-radius: 16px; color: #fff;
+    background: linear-gradient(150deg, #16242E 0%, #1F4D5A 55%, #0E7C66 100%);
+    padding: 28px 22px 24px; min-height: 260px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  .ad svg { position: absolute; right: -40px; top: -40px; opacity: .22; }
+  .ad small { color: #B9E3D6; font-weight: 600; }
+  .ad h1 { margin: 6px 0 8px; font-size: 1.7rem; line-height: 1.15; }
+  .ad p { margin: 0; color: #DCEBE6; max-width: 32ch; }
+  .card { margin-top: 16px; background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 8px 26px rgba(22,36,46,.1); }
+  .card p { margin: 0 0 14px; color: #56666E; font-size: .95rem; }
+  footer { text-align: center; color: #56666E; font-size: .85rem; margin-top: 18px; }
+</style>
+</head>
+<body>
+  <main>
+    <p class="brand">[[site_name]]</p>
+
+    <section class="ad" aria-label="Announcement">
+      <svg width="220" height="220" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16.3a5 5 0 0 1 6 0"/>
+      </svg>
+      <small>City announcement</small>
+      <h1>Your announcement goes here</h1>
+      <p>Replace this box with an advisory, an event, or a sponsor's banner in the Captive portal editor.</p>
+    </section>
+
+    <div class="card">
+      <p>You're registered. Tap below to start browsing.</p>
+      [[connect]]
+    </div>
+
+    <footer>Access point: [[router_name]]</footer>
+  </main>
+</body>
+</html>

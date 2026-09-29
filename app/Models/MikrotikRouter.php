@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class MikrotikRouter extends Model
 {
@@ -26,7 +27,7 @@ class MikrotikRouter extends Model
         'name', 'location', 'model',
         'host', 'api_port', 'use_ssl', 'username', 'password',
         'port_roles', 'wan_interface', 'wan_mode', 'wan_address', 'wan_gateway',
-        'vlans',
+        'vlans', 'login_mode', 'login_url',
         'block_index', 'subnet', 'gateway', 'pool_start', 'pool_end',
         'lan_subnet', 'lan_gateway', 'lan_pool_start', 'lan_pool_end',
         'mgmt_subnet', 'mgmt_gateway', 'mgmt_pool_start', 'mgmt_pool_end',
@@ -35,6 +36,50 @@ class MikrotikRouter extends Model
     ];
 
     protected $hidden = ['password'];
+
+    public const LOGIN_MODES = [
+        'portal' => 'Captive portal from this system',
+        'custom' => 'Custom URL (external portal)',
+        'builtin' => "Router's built-in page",
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $router) {
+            $router->portal_code ??= Str::lower(Str::random(12));
+        });
+    }
+
+    public function usesExternalLogin(): bool
+    {
+        return in_array($this->login_mode, ['portal', 'custom'], true);
+    }
+
+    /** Where the router's login.html sends people. */
+    public function loginTarget(): ?string
+    {
+        return match ($this->login_mode) {
+            'custom' => $this->login_url,
+            'portal' => $this->portalUrl(),
+            default => null,
+        };
+    }
+
+    public function portalUrl(): string
+    {
+        return rtrim((string) config('hotspot.portal_url'), '/').'/portal/'.$this->portal_code;
+    }
+
+    /** The redirecting login.html the router downloads during provisioning. */
+    public function loginFileUrl(): string
+    {
+        return rtrim((string) config('hotspot.portal_url'), '/').'/hotspot-files/'.$this->portal_code.'/login.html';
+    }
+
+    public function loginModeLabel(): string
+    {
+        return self::LOGIN_MODES[$this->login_mode] ?? self::LOGIN_MODES['builtin'];
+    }
 
     protected function casts(): array
     {

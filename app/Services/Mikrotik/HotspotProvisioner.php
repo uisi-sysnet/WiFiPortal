@@ -35,10 +35,129 @@ class HotspotProvisioner
     private array $log = [];
 
     /**
-     * Reads facts and the physical ports, marking which bridge each port is in
-     * and which port(s) carry the dashboard's own API connection.
+     * Logs in and reads the basics only. Used by the "Test API connection" button.
      */
-    public function inspect(MikrotikRouter $router): array
+    public function testConnection(MikrotikRouter $router): array
+    {
+        $this->connect($router);
+        $resource = $this->rows(new Query('/system/resource/print'))[0] ?? [];
+
+        return [
+            'identity' => $this->rows(new Query('/system/identity/print'))[0]['name'] ?? null,
+            'board_name' => $resource['board-name'] ?? null,
+            'ros_version' => $resource['version'] ?? null,
+            'uptime' => $resource['uptime'] ?? null,
+        ];
+    }
+
+    /**
+     * Turns library/socket errors into something an admin can act on.
+     */
+    public static function explain(Throwable $e, MikrotikRouter $router): string
+    {
+        $raw = $e->getMessage();
+        $class = class_basename($e);
+        $target = "{$router->host}:{$router->api_port}";
+
+        if (str_contains($class, 'Credentials') || stripos($raw, 'invalid user name or password') !== false
+            || stripos($raw, 'cannot log in') !== false) {
+            return 'Wrong API username or password, or this user is not allowed to log in from the dashboard server\'s IP.';
+        }
+        if (stripos($raw, 'timed out') !== false || stripos($raw, 'timeout') !== false) {
+            return "No answer from {$target}. Check the IP, that the router is online, and that a firewall is not dropping the API port.";
+        }
+        if (stripos($raw, 'refused') !== false || stripos($raw, 'unable to establish') !== false
+            || str_contains($class, 'Connect')) {
+            return "Could not open {$target}. Check that the ".($router->use_ssl ? 'api-ssl' : 'api')
+                .' service is enabled in /ip service and that its "Available From" includes this server.';
+        }
+        if ($router->use_ssl && (stripos($raw, 'ssl') !== false || stripos($raw, 'crypto') !== false)) {
+            return 'The SSL handshake failed. Make sure api-ssl has a certificate assigned in /ip service.';
+        }
+
+        return $raw;
+    }
+
+    /**
+     * Logs a device into the hotspot from the server: the router checks the
+     * username/password (locally or through RADIUS) and opens internet for
+     * that MAC and IP. The phone never sees the credentials.
+     */
+    public function hotspotLogin(MikrotikRouter $router, string $username, string $password, string $mac, string $ip): void
+    {
+        $this->connect($router);
+        $this->run((new Query('/ip/hotspot/active/login'))
+            ->equal('user', $username)
+            ->equal('password', $password)
+            ->equal('mac-address', $mac)
+            ->equal('ip', $ip), 'Hotspot login:');
+    }
+
+    /** Creates or updates a local hotspot user (used when RADIUS is not set up yet). */
+    public function upsertGuestUser(MikrotikRouter $router, string $username, string $password, ?string $mac = null): void
+    {
+        $this->connect($router);
+        $this->ensure('/ip/hotspot/user', ['name' => $username], array_filter([
+            'password' => $password,
+            'profile' => 'default',
+            'mac-address' => $mac, // only this device can log in with it
+            'comment' => self::TAG.':guest',
+        ]));
+    }
+
+    /** Removes expired local hotspot users by name. */
+    public function removeGuestUsers(MikrotikRouter $router, array $usernames): void
+    {
+        $this->connect($router);
+        foreach ($usernames as $name) {
+            $id = $this->rows((new Query('/ip/hotspot/user/print'))->where('name', $name))[0]['.id'] ?? null;
+            if ($id) {
+                $this->run((new Query('/ip/hotspot/user/remove'))->equal('.id', $id));
+            }
+        }
+    }
+
+    /**
+     * Replaces the router's login.html with a small page that forwards users
+     * (with their MAC, IP and the router's login link) to the splash page or
+     * custom URL, and lets that host through before login.
+     */
+    private function setupExternalLogin(MikrotikRouter $router): void
+    {
+        $target = (string) $router->loginTarget();
+        $host = parse_url($target, PHP_URL_HOST);
+
+        if ($host) {
+            $this->ensure('/ip/hotspot/walled-garden', ['comment' => self::TAG.':login-host'], [
+                'dst-host' => $host,
+                'action' => 'allow',
+            ]);
+            $this->ensure('/ip/hotspot/walled-garden/ip', ['comment' => self::TAG.':login-host-ip'], [
+                ...(filter_var($host, FILTER_VALIDATE_IP) ? ['dst-address' => $host] : ['dst-host' => $host]),
+                'action' => 'accept',
+            ]);
+        }
+
+        $profile = $this->rows((new Query('/ip/hotspot/profile/print'))->where('name', self::SERVER_PROFILE))[0] ?? [];
+        $dir = trim((string) ($profile['html-directory'] ?? ''), '/');
+        if ($dir === '') {
+            $dir = 'hotspot';
+            $this->ensure('/ip/hotspot/profile', ['name' => self::SERVER_PROFILE], ['html-directory' => $dir]);
+        }
+
+        // The router downloads its login.html from this app (works on RouterOS 6 and 7).
+        $fetch = (new Query('/tool/fetch'))
+            ->equal('url', $router->loginFileUrl())
+            ->equal('dst-path', "{$dir}/login.html");
+        if (str_starts_with($router->loginFileUrl(), 'https://')) {
+            $fetch->equal('check-certificate', 'no');
+        }
+        $this->run($fetch, 'Could not download login.html from '.$router->loginFileUrl().':');
+
+        $this->step("Login page: {$dir}/login.html forwards users to {$target}; {$host} reachable before login");
+    }
+
+    private function connect(MikrotikRouter $router): void
     {
         $this->client = new Client([
             'host' => $router->host,
@@ -49,6 +168,15 @@ class HotspotProvisioner
             'timeout' => config('hotspot.api.timeout'),
             'attempts' => 1,
         ]);
+    }
+
+    /**
+     * Reads facts and the physical ports, marking which bridge each port is in
+     * and which port(s) carry the dashboard's own API connection.
+     */
+    public function inspect(MikrotikRouter $router): array
+    {
+        $this->connect($router);
 
         $resource = $this->rows(new Query('/system/resource/print'))[0] ?? [];
         $identity = $this->rows(new Query('/system/identity/print'))[0]['name'] ?? null;
@@ -332,7 +460,8 @@ class HotspotProvisioner
         $this->ensure('/ip/hotspot/profile', ['name' => self::SERVER_PROFILE], [
             'hotspot-address' => $router->gateway,
             'dns-name' => $cfg['dns_name'],
-            'login-by' => 'http-chap,mac-cookie',
+            // External pages log users in with a plain username/password (PAP)
+            'login-by' => $router->usesExternalLogin() ? 'http-chap,http-pap,mac-cookie' : 'http-chap,mac-cookie',
             'use-radius' => $radius ? 'yes' : 'no',
             'radius-accounting' => $radius ? 'yes' : 'no',
             'radius-interim-update' => $cfg['radius']['interim_update'],
@@ -353,6 +482,12 @@ class HotspotProvisioner
             'disabled' => 'no',
         ]);
         $this->step('Hotspot '.self::SERVER.' on '.$vlan('hotspot')['name']." at http://{$cfg['dns_name']}, {$cfg['rate_limit']} per user");
+
+        if ($router->usesExternalLogin()) {
+            $this->setupExternalLogin($router);
+        } else {
+            $this->step("Login page: the router's built-in page");
+        }
 
         foreach ($cfg['walled_garden'] as $host) {
             $this->ensure('/ip/hotspot/walled-garden', ['comment' => self::TAG.':wg:'.$host], [
