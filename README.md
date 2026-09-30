@@ -3,22 +3,58 @@
 Admin login, a router list, and an "Add router" page. Adding a MikroTik
 connects to it over the RouterOS API and configures a complete hotspot.
 
-## Install
+## Development (Windows)
 
 ```bash
-composer create-project laravel/laravel publicwifi
-cd publicwifi
-composer require evilfreelancer/routeros-api-php
-# copy this folder's files over the new project, then:
-cat .env.hotspot.example >> .env        # edit DB_*, RADIUS_* etc.
+composer install
+cp .env.production.example .env         # then set APP_ENV=local, APP_DEBUG=true, DB_*, FFMPEG_PATH
+php artisan key:generate
 php artisan migrate
 php artisan wifi:make-admin you@example.com --name="Network Admin"
-php artisan queue:work                   # keep running (systemd/supervisor in production)
+php artisan queue:work                   # keep running
+php artisan schedule:work                # keep running: SNMP polling, credential expiry
 php artisan serve
 ```
 
-Requires Laravel 11 or newer (uses `casts()` and the `Queueable` job trait).
-`routes/console.php` here only holds the admin command; merge it into yours.
+PHP needs the `pdo_pgsql`, `snmp`, `gd`, `mbstring` and `intl` extensions. Upload limits
+(`upload_max_filesize`, `post_max_size` = 110M) go in `php.ini`, not `.env`.
+
+## Deploy (Ubuntu 24.04 + nginx)
+
+Everything is in `deploy/`: nginx site, PHP limits, queue worker service, scheduler cron,
+and two scripts.
+
+**First time**, on the server:
+
+```bash
+sudo git clone https://github.com/uisi-sysnet/WiFiPortal.git /var/www/wifiportal
+sudo chown -R "$USER" /var/www/wifiportal
+sudo bash /var/www/wifiportal/deploy/setup-server.sh
+```
+
+It installs nginx, PHP 8.3-FPM (+ pgsql, snmp, gd), PostgreSQL, ffmpeg and Composer; creates
+the database with a random password; writes `.env` from `.env.production.example`; runs
+migrations; and starts three queue workers (`wifiportal-queue@1..3`) and the scheduler cron.
+Then edit `.env` (`APP_URL`, `PORTAL_URL`, `RADIUS_*`), run
+`sudo -u www-data php artisan optimize`, and create an admin with
+`sudo -u www-data php artisan wifi:make-admin`.
+
+**Every update**: push from Windows, then on the server:
+
+```bash
+bash /var/www/wifiportal/deploy/deploy.sh
+```
+
+Things to know:
+
+- **Keep HTTP on port 80.** Phones open `/portal/...` before login and routers download
+  `login.html` with `/tool fetch`. HTTPS for the dashboard is fine (`certbot --nginx`), but
+  answer "no redirect", and leave `PORTAL_URL` on `http://`.
+- **Reachability.** The server must reach each router's API (8728/8729) and each AP/switch on
+  SNMP (UDP 161); phones on every hotspot VLAN must reach the server on port 80.
+- **After editing `.env`** run `sudo -u www-data php artisan optimize` (config is cached).
+- **Logs:** `storage/logs/laravel-*.log`, `journalctl -u wifiportal-queue@1`, `/var/log/nginx/`.
+- Run artisan as `www-data` (`sudo -u www-data php artisan ...`) so cache and log files stay writable.
 
 ## Prepare each MikroTik (once, from Winbox or terminal)
 

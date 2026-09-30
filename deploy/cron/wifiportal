@@ -1,0 +1,3 @@
+# /etc/cron.d/wifiportal
+# Laravel scheduler: devices:poll every minute, hotspot:expire-credentials every 15 minutes.
+* * * * * www-data cd /var/www/wifiportal && /usr/bin/php artisan schedule:run >> /dev/null 2>&1

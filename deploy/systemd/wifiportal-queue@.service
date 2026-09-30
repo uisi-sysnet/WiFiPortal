@@ -1,0 +1,21 @@
+# /etc/systemd/system/wifiportal-queue@.service
+# Queue workers: router provisioning, SNMP polling, video transcoding.
+# Start several: systemctl enable --now wifiportal-queue@{1..3}
+#
+# --timeout must exceed the longest job (TranscodePortalVideo: 1000 s), and
+# DB_QUEUE_RETRY_AFTER in .env must exceed --timeout, or a slow job is started twice.
+
+[Unit]
+Description=WiFi Portal queue worker %i
+After=network.target postgresql.service
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/wifiportal
+ExecStart=/usr/bin/php artisan queue:work --sleep=3 --tries=1 --timeout=1050 --max-time=3600
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
