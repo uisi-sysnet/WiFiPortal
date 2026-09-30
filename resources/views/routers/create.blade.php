@@ -202,7 +202,7 @@ table.vlans td.mono{color:var(--ink-2)}
       @php $loginMode = old('login_mode', 'portal'); @endphp
       <div class="login-modes" role="radiogroup" aria-label="Login page">
         <label class="check"><input type="radio" name="login_mode" value="portal" @checked($loginMode === 'portal')>
-          <span>Splash page from this system<small class="hint" style="display:block;font-weight:400">Registration form with resident ID, Terms pop-up. <a href="{{ route('splash.edit') }}" target="_blank">Edit splash page</a></small></span></label>
+          <span>Captive portal from this system<small class="hint" style="display:block;font-weight:400">Login page with resident ID and Terms, then the advertisement page with Connect. <a href="{{ route('splash.edit') }}" target="_blank">Edit captive portal</a></small></span></label>
         <label class="check"><input type="radio" name="login_mode" value="custom" @checked($loginMode === 'custom')>
           <span>Custom URL<small class="hint" style="display:block;font-weight:400">Your own external login or splash page</small></span></label>
         <label class="check"><input type="radio" name="login_mode" value="builtin" @checked($loginMode === 'builtin')>
@@ -214,7 +214,7 @@ table.vlans td.mono{color:var(--ink-2)}
         <p class="hint">Receives <span class="mono">mac</span>, <span class="mono">ip</span>, <span class="mono">link-login-only</span>, <span class="mono">link-orig</span>, <span class="mono">chap-id</span>, <span class="mono">chap-challenge</span> and <span class="mono">error</span> as query parameters. Its host is allowed before login.</p>
         @error('login_url')<p class="error" id="login_url-error">{{ $message }}</p>@enderror
       </div>
-      <p class="hint" style="margin:12px 0 18px">For the splash page and custom URL, the router downloads its <span class="mono">login.html</span> from <span class="mono">{{ config('hotspot.portal_url') }}</span>, so the router must be able to reach that address.</p>
+      <p class="hint" style="margin:12px 0 18px">For the captive portal and custom URL, the router downloads its <span class="mono">login.html</span> from <span class="mono">{{ config('hotspot.portal_url') }}</span>, so the router must be able to reach that address.</p>
     </fieldset>
 
     <fieldset>

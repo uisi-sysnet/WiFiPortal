@@ -130,10 +130,17 @@ class SnmpProbe
                 'last_error' => null,
             ])->save();
         } catch (Throwable $e) {
-            $failures = $device->failures + 1;
+            $failures = (int) $device->failures + 1;
+
+            // A device that has answered before gets `offline_after` misses of grace
+            // (one lost packet shouldn't raise an alarm). One that has never answered
+            // is offline straight away.
+            $neverSeen = $device->last_seen_at === null;
+            $offline = $neverSeen || $failures >= config('devices.offline_after');
+
             $device->forceFill([
                 'failures' => $failures,
-                'status' => $failures >= config('devices.offline_after') ? 'offline' : $device->status,
+                'status' => $offline ? 'offline' : ($device->status ?: 'unknown'),
                 'last_checked_at' => now(),
                 'last_error' => $e->getMessage(),
             ])->save();
