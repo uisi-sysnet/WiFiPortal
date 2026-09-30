@@ -27,21 +27,6 @@
         Switches
       </a>
     </div>
-    <div role="group" aria-labelledby="dm-add" class="dm-sep">
-      <p class="dm-group" id="dm-add">Add</p>
-      <a role="menuitem" tabindex="-1" href="{{ route('routers.create') }}" @if(request()->routeIs('routers.create')) aria-current="page" @endif>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Add router
-      </a>
-      <a role="menuitem" tabindex="-1" href="{{ route('aps.create') }}" @if(request()->routeIs('aps.create')) aria-current="page" @endif>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Add access point
-      </a>
-      <a role="menuitem" tabindex="-1" href="{{ route('switches.create') }}" @if(request()->routeIs('switches.create')) aria-current="page" @endif>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Add switch
-      </a>
-    </div>
   </div>
 </div>
 
