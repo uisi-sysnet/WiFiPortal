@@ -84,7 +84,7 @@
   <h2 id="other-title">Other settings</h2>
   <div class="plan">
     <p>Address plans, VLAN defaults, rate limits, RADIUS and SNMP timing: <span class="mono">.env</span>, then run <span class="mono">php artisan config:clear</span>.</p>
-    <p style="margin-top:8px">Login page design and Terms: <a href="{{ route('splash.edit') }}">Splash page</a>.</p>
+    <p style="margin-top:8px">Login page, advertisement page and Terms: <a href="{{ route('splash.edit') }}">Captive portal</a>.</p>
     <p style="margin-top:8px">New administrator: <span class="mono">php artisan wifi:make-admin email@example.com</span>.</p>
   </div>
 </section>

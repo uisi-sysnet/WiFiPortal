@@ -293,7 +293,7 @@ a{color:var(--neon)}
   <nav aria-label="Main">
     <a href="{{ route('dashboard') }}" aria-current="page">Dashboard</a>
     @include('partials.devices-menu')
-    <a href="{{ route('splash.edit') }}">Splash page</a>
+    <a href="{{ route('splash.edit') }}">Captive portal</a>
   </nav>
   <p class="health" role="status"><b>{{ $k['routers']['online'] }} of {{ $k['routers']['total'] }}</b> routers online</p>
   <div class="clock"><time id="clock">--:--:--</time><span id="date">Philippine time</span></div>
