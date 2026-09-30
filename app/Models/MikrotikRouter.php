@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MikrotikRouter extends Model
 {
@@ -15,20 +15,21 @@ class MikrotikRouter extends Model
     /**
      * wan     internet uplink (exactly one)
      * lan     untagged office LAN on bridge-lan
-     * trunk   tagged port on bridge-trunk carrying hotspot, management and test VLANs
-     * access  untagged hotspot port on bridge-trunk (plain APs, wireless interfaces)
+     * trunk   tagged port on bridge-trunk carrying every hotspot VLAN, management and test
+     * access:<vlan>  untagged port in that hotspot network (plain APs, wireless interfaces).
+     *         Plain "access" (saved before networks existed) means the first network.
      * none    left alone
      */
     public const ROLES = ['wan', 'lan', 'trunk', 'access', 'none'];
 
-    public const NETWORKS = ['hotspot' => 'Hotspot', 'mgmt' => 'Management', 'test' => 'Test'];
+    /** Router-wide VLANs. Hotspot VLANs belong to each HotspotNetwork. */
+    public const NETWORKS = ['mgmt' => 'Management', 'test' => 'Test'];
 
     protected $fillable = [
         'name', 'location', 'model',
         'host', 'api_port', 'use_ssl', 'username', 'password',
         'port_roles', 'wan_interface', 'wan_mode', 'wan_address', 'wan_gateway',
-        'vlans', 'login_mode', 'login_url',
-        'block_index', 'subnet', 'gateway', 'pool_start', 'pool_end',
+        'vlans', 'block_index',
         'lan_subnet', 'lan_gateway', 'lan_pool_start', 'lan_pool_end',
         'mgmt_subnet', 'mgmt_gateway', 'mgmt_pool_start', 'mgmt_pool_end',
         'test_subnet', 'test_gateway', 'test_pool_start', 'test_pool_end',
@@ -37,48 +38,30 @@ class MikrotikRouter extends Model
 
     protected $hidden = ['password'];
 
-    public const LOGIN_MODES = [
-        'portal' => 'Captive portal from this system',
-        'custom' => 'Custom URL (external portal)',
-        'builtin' => "Router's built-in page",
-    ];
-
-    protected static function booted(): void
+    public function hotspotNetworks(): HasMany
     {
-        static::creating(function (self $router) {
-            $router->portal_code ??= Str::lower(Str::random(12));
-        });
+        return $this->hasMany(HotspotNetwork::class)->orderBy('id');
     }
 
-    public function usesExternalLogin(): bool
+    /** "access" or "access:<vlan id>" */
+    public static function isAccessRole(string $role): bool
     {
-        return in_array($this->login_mode, ['portal', 'custom'], true);
+        return $role === 'access' || preg_match('/^access:\d{1,4}$/', $role) === 1;
     }
 
-    /** Where the router's login.html sends people. */
-    public function loginTarget(): ?string
+    /** @return string[] ports untagged in this hotspot network */
+    public function accessPortsFor(HotspotNetwork $network): array
     {
-        return match ($this->login_mode) {
-            'custom' => $this->login_url,
-            'portal' => $this->portalUrl(),
-            default => null,
-        };
+        return [
+            ...($network->isPrimary() ? $this->portsWith('access') : []),
+            ...$this->portsWith('access:'.$network->vlan_id),
+        ];
     }
 
-    public function portalUrl(): string
+    /** @return string[] every port untagged in some hotspot network */
+    public function accessPorts(): array
     {
-        return rtrim((string) config('hotspot.portal_url'), '/').'/portal/'.$this->portal_code;
-    }
-
-    /** The redirecting login.html the router downloads during provisioning. */
-    public function loginFileUrl(): string
-    {
-        return rtrim((string) config('hotspot.portal_url'), '/').'/hotspot-files/'.$this->portal_code.'/login.html';
-    }
-
-    public function loginModeLabel(): string
-    {
-        return self::LOGIN_MODES[$this->login_mode] ?? self::LOGIN_MODES['builtin'];
+        return array_keys(array_filter($this->port_roles ?? [], fn ($role) => self::isAccessRole($role)));
     }
 
     protected function casts(): array
@@ -117,16 +100,14 @@ class MikrotikRouter extends Model
         return (bool) ($this->vlans['mgmt']['native'] ?? false);
     }
 
-    /** Subnet, gateway and pool of one network (hotspot, mgmt, test, lan). */
+    /** Subnet, gateway and pool of a router-wide network (mgmt, test, lan). */
     public function network(string $network): array
     {
-        $p = $network === 'hotspot' ? '' : "{$network}_";
-
         return [
-            'subnet' => $this->{"{$p}subnet"},
-            'gateway' => $this->{"{$p}gateway"},
-            'pool_start' => $this->{"{$p}pool_start"},
-            'pool_end' => $this->{"{$p}pool_end"},
+            'subnet' => $this->{"{$network}_subnet"},
+            'gateway' => $this->{"{$network}_gateway"},
+            'pool_start' => $this->{"{$network}_pool_start"},
+            'pool_end' => $this->{"{$network}_pool_end"},
         ];
     }
 

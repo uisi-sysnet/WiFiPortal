@@ -79,19 +79,36 @@ certificate, then `/ip service set api-ssl certificate=<cert> address=<LARAVEL_S
         bridge-trunk  (VLAN filtering)
          |        |
    [Trunk ports]  [Hotspot ports]
-   tagged:        untagged in hotspot VLAN
-   hotspot 10     (plain APs, wlan interfaces)
+   tagged:        untagged in one hotspot network's VLAN
+   hotspot 10,    (plain APs, wlan interfaces)
+     11, ...
    mgmt    99
    test    20
 ```
 
-| Network | Default VLAN | Address plan (block N per router) | Reaches |
+| Network | Default VLAN | Address plan | Reaches |
 |---|---|---|---|
-| Hotspot | 10 | `/20` from `10.64.0.0/10`, login + RADIUS | internet only |
+| Hotspot networks (1 to 8) | 10, 11, ... | one subnet **per network**, `/24` to `/16` (default `/20` from `10.64.0.0/10`), login + RADIUS | internet only (not each other) |
 | Management | 99 | `/24` from `172.20.0.0/14` | internet, router, LAN |
 | Test | 20 | `/24` from `172.24.0.0/14`, no login | internet only |
 | LAN (optional) | untagged | `/24` from `172.16.0.0/14` | internet, router, management |
 
+Each hotspot network (e.g. "Public WiFi" on VLAN 10, "School" on VLAN 11) gets its own
+VLAN, subnet, DHCP server and hotspot server. Management, test and LAN are one per router.
+
+### Hotspot network size, address and user limit
+
+| Setting | Choices |
+|---|---|
+| Size | `/24` (254 addresses: 253 users + gateway, the minimum) up to `/16` (65,533 users) |
+| Network address | empty = the next free subnet of that size in `HOTSPOT_SUPERNET`; or type any private subnet (10.x, 172.16-31.x, 192.168.x, 100.64-127.x) |
+| User limit | empty = no limit (DHCP hands out the whole subnet); otherwise 254 up to the subnet's size. The DHCP range is cut to exactly that many addresses, so no more devices can join |
+
+A typed address must be the start of its block (`10.70.0.0/22`, not `10.70.0.5/22`) and may not
+overlap another hotspot network on any router, the management/test/LAN plans, or the portal
+server's IP. The address and limit can be changed later on the router's page; saving re-applies
+the router, updating the gateway, DHCP, NAT and hotspot entries in place (connected phones get
+a new address).
 VLAN IDs and interface names are set per router on the Add router page (defaults in
 `.env`). Tick "Send management untagged" when APs or switches boot without a tag.
 On management, test and LAN, addresses `.2`-`.63` are kept for fixed IPs.
@@ -104,15 +121,16 @@ All objects are tagged `publicwifi:*` or use fixed names, so Re-apply updates in
 |---|---|
 | Identity | `/system identity` = router name (used as NAS-Identifier) |
 | WAN | chosen port taken out of any bridge; keep / DHCP client / static IP + default route |
-| Trunk bridge | `bridge-trunk`; trunk ports `admit-only-vlan-tagged` (or native mgmt), hotspot ports untagged PVID; ingress filtering |
-| VLAN table | `/interface bridge vlan` per network, bridge tagged; VLAN filtering switched on last |
+| Trunk bridge | `bridge-trunk`; trunk ports `admit-only-vlan-tagged` (or native mgmt), hotspot ports untagged with their network's PVID; ingress filtering |
+| VLAN table | `/interface bridge vlan` per network (every hotspot VLAN tagged on every trunk), bridge tagged; VLAN filtering switched on last |
 | VLAN interfaces | one `/interface vlan` per network on `bridge-trunk` |
-| Addressing | gateway `.1`, pool, DHCP server and masquerade per network |
-| Interface lists | management, test and LAN in list `LAN`, WAN port in list `WAN` |
-| Firewall | hotspot and test: internet only both ways, router management ports blocked |
+| Addressing | gateway `.1`, pool, DHCP server and masquerade per network (masquerade out of the PPPoE interface when WAN is kept and runs PPPoE) |
+| Interface lists | management, test and LAN in list `LAN`, WAN port (and its PPPoE) in list `WAN` |
+| Firewall | each hotspot network and test: internet only both ways, router management ports blocked; DNS not answered from the WAN side |
+| FastTrack | hotspot traffic accepted just above the FastTrack rule, so per-user speed limits and RADIUS byte counts work |
 | RADIUS | hotspot service, accounting, interim 5m, CoA accept |
-| Hotspot | on the hotspot VLAN interface, CHAP + MAC cookie, 1 device per account |
-| Walled garden | hosts from `HOTSPOT_WALLED_GARDEN` |
+| Hotspot | one server + profile per network (`hotspot-publicwifi`, `hotspot-publicwifi-11`, ...), CHAP + MAC cookie, 1 device per account |
+| Walled garden | portal host(s), plus hosts from `HOTSPOT_WALLED_GARDEN` |
 
 ## Adding a router
 
@@ -124,16 +142,35 @@ All objects are tagged `publicwifi:*` or use fixed names, so Re-apply updates in
 
 ## Hotspot login page
 
-Chosen per router on the Add router page:
+Chosen per hotspot network (on the Add router page, or later on the router's page):
 
 | Option | What happens |
 |---|---|
-| Splash page from this system | Router's `login.html` forwards phones to `PORTAL_URL/portal/{code}` |
-| Custom URL | Same forwarder, pointed at your external portal |
-| Router's built-in page | MikroTik's own page, nothing changed |
+| Captive portal from this system | Phones go to `PORTAL_URL/portal/{network code}`, showing the designs chosen for that network |
+| Custom URL | Phones go to your external portal |
+| Router's built-in page | MikroTik's own page (or, if another network on the router uses the first two, a plain username/password form) |
 
-For the first two, provisioning downloads `login.html` from this app with `/tool fetch`,
-adds the portal host to the walled garden (HTTP and IP), and enables `http-pap`.
+If any network uses the first two, provisioning downloads one `login.html` from this app with
+`/tool fetch` into the shared hotspot folder, adds the portal host(s) to the walled garden
+(HTTP and IP), and enables `http-pap`. That one file serves every network: it reads the
+router's `$(server-name)` and forwards the phone to that network's target.
+
+### Captive portal designs
+
+A design holds a login page (HTML, Terms, form rules) and an advertisement page. Keep as many
+as you like under **Captive portal** in the menu, and pick two per hotspot network: the design
+for its login page and the design for its advertisement page.
+
+| You want | Choose |
+|---|---|
+| One portal and ad on every network | the same design for both pages on every network |
+| Each network its own portal and ad | a different design per network |
+| One portal, a different ad per network | the same login design everywhere, a different advertisement design per network |
+
+Design changes show on the next page load. Changing a network's login page type or custom
+URL re-applies the router, because its `login.html` has to change. Networks that never picked
+a design use the first one (the default), which can't be deleted; other designs can be deleted
+once no network uses them.
 
 ### Splash page flow
 
@@ -161,13 +198,17 @@ as local hotspot users on that router through the API (fine for testing, not for
 
 ### Editing
 
-**Splash page** in the menu: page HTML (with `[[form]]`, `[[site_name]]`, `[[router_name]]`,
-`[[location]]`), Terms in Markdown, resident ID label/format/help, blocked names, and an
-optional page to open after login. **Preview in new tab** shows unsaved changes.
+**Captive portal** in the menu: pick or create a design, then edit its page HTML (with
+`[[form]]`, `[[site_name]]`, `[[network_name]]`, `[[router_name]]`, `[[location]]`), Terms in
+Markdown, resident ID label/format/help, blocked names, the advertisement page, and an optional
+page to open after login. **Preview in new tab** shows unsaved changes. The page lists which
+networks show the design's login page and which show its advertisement.
 
 ## Ports and models
 
-Each port gets a role: WAN (exactly one), Trunk, Hotspot (untagged), LAN, or Not used.
+Each port gets a role: WAN (exactly one), Trunk, Hotspot (untagged, one column per hotspot
+network), LAN, or Not used. Trunks carry every hotspot VLAN. A network added later from the
+router's page is carried on the trunks only.
 Models and their default port names are in `config/mikrotik_models.php`; add your own there.
 "Read ports from router" pulls the real list over the API, including wireless interfaces.
 
@@ -181,8 +222,9 @@ No single MikroTik can hold 500,000 hotspot sessions, so capacity comes from the
 
 1. **Address plan.** `10.64.0.0/10` is split into 1,024 `/20` blocks of 4,093 devices
    each: 4.19 million client addresses. 500,000 concurrent devices fill about 123 blocks.
-   Each router gets the next free block automatically, so subnets never overlap and
-   traffic stays traceable to a site.
+   Each hotspot network gets the next free block automatically, so subnets never overlap and
+   traffic stays traceable to a site and network. (A router with three hotspot networks uses
+   three blocks.)
 2. **Many gateways, one user database.** Accounts live in RADIUS, not on the routers.
    500,000 accounts are a small table for PostgreSQL; the routers only carry active sessions.
 3. **Churn control.** 1h DHCP leases, 5m idle timeout and 2m keepalive release addresses

@@ -2,7 +2,9 @@
 
 namespace App\Services\Mikrotik;
 
+use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
+use Illuminate\Support\Collection;
 use RouterOS\Client;
 use RouterOS\Query;
 use RuntimeException;
@@ -13,9 +15,12 @@ use Throwable;
  * (package: evilfreelancer/routeros-api-php):
  *
  *   WAN port       -> internet (keep / DHCP client / static)
- *   Trunk ports    -> bridge-trunk, tagged: hotspot, management and test VLANs
- *   Hotspot ports  -> bridge-trunk, untagged in the hotspot VLAN (plain APs, wlan)
+ *   Trunk ports    -> bridge-trunk, tagged: every hotspot VLAN, management and test
+ *   Hotspot ports  -> bridge-trunk, untagged in one hotspot network's VLAN (plain APs, wlan)
  *   LAN ports      -> bridge-lan, untagged office network (optional)
+ *
+ * Each hotspot network gets its own VLAN interface, subnet, DHCP server and
+ * hotspot server; they are isolated from each other and from internal networks.
  *
  * Every step is idempotent: objects are found by name or by a
  * "publicwifi:*" comment and updated in place, so Re-apply repairs drift.
@@ -28,10 +33,10 @@ class HotspotProvisioner
     public const SERVER = 'hotspot-publicwifi';
     public const TAG = 'publicwifi';
 
-    private const LABELS = ['hotspot' => 'Hotspot', 'mgmt' => 'Management', 'test' => 'Test', 'lan' => 'LAN'];
     private const MGMT_PORTS = '21,22,23,8291,8728,8729';
 
-    private ?Client $client = null;
+    /** @var Client|object|null RouterOS API client */
+    private ?object $client = null;
     private array $log = [];
 
     /**
@@ -118,48 +123,56 @@ class HotspotProvisioner
     }
 
     /**
-     * Replaces the router's login.html with a small page that forwards users
-     * (with their MAC, IP and the router's login link) to the splash page or
-     * custom URL, and lets that host through before login.
+     * Points each network's hotspot at its login page. The router has one
+     * login.html (downloaded from this app); it reads $(server-name) and
+     * forwards phones to that network's portal or custom URL. Networks set to
+     * the built-in page get a plain username/password form from the same file.
+     *
+     * @param  Collection<int, HotspotNetwork>  $networks
      */
-    private function setupExternalLogin(MikrotikRouter $router): void
+    private function setupExternalLogin(Collection $networks, string $dir): void
     {
-        $target = (string) $router->loginTarget();
-        $host = parse_url($target, PHP_URL_HOST);
+        $hosts = $networks->filter->usesExternalLogin()
+            ->map(fn (HotspotNetwork $n) => parse_url((string) $n->loginTarget(), PHP_URL_HOST))
+            ->filter()->unique()->values();
 
-        if ($host) {
-            $this->ensure('/ip/hotspot/walled-garden', ['comment' => self::TAG.':login-host'], [
+        // The first host keeps the comment used before networks existed, so re-apply updates it in place.
+        foreach ($hosts as $i => $host) {
+            $suffix = $i === 0 ? '' : ':'.$host;
+            $this->ensure('/ip/hotspot/walled-garden', ['comment' => self::TAG.':login-host'.$suffix], [
                 'dst-host' => $host,
                 'action' => 'allow',
             ]);
-            $this->ensure('/ip/hotspot/walled-garden/ip', ['comment' => self::TAG.':login-host-ip'], [
+            $this->ensure('/ip/hotspot/walled-garden/ip', ['comment' => self::TAG.':login-host-ip'.$suffix], [
                 ...(filter_var($host, FILTER_VALIDATE_IP) ? ['dst-address' => $host] : ['dst-host' => $host]),
                 'action' => 'accept',
             ]);
         }
 
-        $profile = $this->rows((new Query('/ip/hotspot/profile/print'))->where('name', self::SERVER_PROFILE))[0] ?? [];
-        $dir = trim((string) ($profile['html-directory'] ?? ''), '/');
-        if ($dir === '') {
-            $dir = 'hotspot';
-            $this->ensure('/ip/hotspot/profile', ['name' => self::SERVER_PROFILE], ['html-directory' => $dir]);
-        }
-
         // The router downloads its login.html from this app (works on RouterOS 6 and 7).
+        $url = $networks->first()->loginFileUrl();
         $fetch = (new Query('/tool/fetch'))
-            ->equal('url', $router->loginFileUrl())
+            ->equal('url', $url)
             ->equal('dst-path', "{$dir}/login.html");
-        if (str_starts_with($router->loginFileUrl(), 'https://')) {
+        if (str_starts_with($url, 'https://')) {
             $fetch->equal('check-certificate', 'no');
         }
-        $this->run($fetch, 'Could not download login.html from '.$router->loginFileUrl().':');
+        $this->run($fetch, "Could not download login.html from {$url}:");
 
-        $this->step("Login page: {$dir}/login.html forwards users to {$target}; {$host} reachable before login");
+        foreach ($networks as $n) {
+            $this->step(match ($n->login_mode) {
+                'portal', 'custom' => "Login page for {$n->name}: forwards to {$n->loginTarget()}",
+                default => "Login page for {$n->name}: username and password form",
+            });
+        }
+        if ($hosts->isNotEmpty()) {
+            $this->step('Reachable before login: '.$hosts->implode(', '));
+        }
     }
 
     private function connect(MikrotikRouter $router): void
     {
-        $this->client = new Client([
+        $this->client = $this->makeClient([
             'host' => $router->host,
             'user' => $router->username,
             'pass' => $router->password,
@@ -168,6 +181,12 @@ class HotspotProvisioner
             'timeout' => config('hotspot.api.timeout'),
             'attempts' => 1,
         ]);
+    }
+
+    /** Separate so tests can swap in a fake router. */
+    protected function makeClient(array $config): object
+    {
+        return new Client($config);
     }
 
     /**
@@ -222,11 +241,15 @@ class HotspotProvisioner
         ];
     }
 
-    /** Inspect + check the chosen port roles are safe. Returns facts to store. */
-    public function probe(MikrotikRouter $router): array
+    /**
+     * Inspect + check the chosen port roles are safe. Returns facts to store.
+     *
+     * @param  Collection<int, HotspotNetwork>  $networks  the router's hotspot networks (may be unsaved)
+     */
+    public function probe(MikrotikRouter $router, Collection $networks): array
     {
         $info = $this->inspect($router);
-        $this->checkPlan($router, $info);
+        $this->checkPlan($router, $info, $networks);
 
         return [
             'identity' => $info['identity'],
@@ -240,15 +263,15 @@ class HotspotProvisioner
         $this->log = [];
         $cfg = config('hotspot');
         $radius = ! empty($cfg['radius']['host']) && ! empty($cfg['radius']['secret']);
+        $networks = $router->hotspotNetworks()->get();
 
         $info = $this->inspect($router);
-        $this->checkPlan($router, $info);
+        $this->checkPlan($router, $info, $networks);
         $ports = array_column($info['ports'], null, 'name');
 
         $wan = $router->wan_interface;
         $lanPorts = $router->portsWith('lan');
         $trunkPorts = $router->portsWith('trunk');
-        $accessPorts = $router->portsWith('access');
         $native = $router->mgmtNative();
         $vlan = fn (string $net) => $router->vlan($net);
 
@@ -288,10 +311,13 @@ class HotspotProvisioner
             })(),
             default => null,
         };
+
+        // With "keep", the internet may run over PPPoE on top of the WAN port.
+        $uplink = $router->wan_mode === 'keep' ? ($this->pppoeOn($wan) ?? $wan) : $wan;
         $this->step(match ($router->wan_mode) {
             'dhcp' => "WAN {$wan}: DHCP client",
             'static' => "WAN {$wan}: {$router->wan_address}, gateway {$router->wan_gateway}",
-            default => "WAN {$wan}: existing IP settings kept",
+            default => "WAN {$wan}: existing IP settings kept".($uplink !== $wan ? ", internet through {$uplink}" : ''),
         });
 
         /* ---------- Trunk bridge with VLAN filtering ---------- */
@@ -308,44 +334,53 @@ class HotspotProvisioner
                 'comment' => self::TAG.':trunk-port',
             ]);
         }
-        foreach ($accessPorts as $port) {
-            $this->ensure('/interface/bridge/port', ['interface' => $port], [
-                'bridge' => self::TRUNK,
-                'pvid' => (string) $vlan('hotspot')['id'],
-                'frame-types' => 'admit-only-untagged-and-priority-tagged',
-                'ingress-filtering' => 'yes',
-                'comment' => self::TAG.':hotspot-access-port',
-            ]);
+        foreach ($networks as $n) {
+            foreach ($router->accessPortsFor($n) as $port) {
+                $this->ensure('/interface/bridge/port', ['interface' => $port], [
+                    'bridge' => self::TRUNK,
+                    'pvid' => (string) $n->vlan_id,
+                    'frame-types' => 'admit-only-untagged-and-priority-tagged',
+                    'ingress-filtering' => 'yes',
+                    'comment' => self::TAG.':hotspot-access-port',
+                ]);
+            }
         }
 
         // Bridge VLAN table. The bridge itself is tagged so the router can route each VLAN.
+        // Every hotspot VLAN is tagged on every trunk port.
         $tagged = fn (array $list) => implode(',', [self::TRUNK, ...$list]);
-        $table = [
-            'hotspot' => [$tagged($trunkPorts), implode(',', $accessPorts)],
-            'mgmt' => [$tagged($native ? [] : $trunkPorts), $native ? implode(',', $trunkPorts) : ''],
-            'test' => [$tagged($trunkPorts), ''],
-        ];
-        foreach ($table as $net => [$taggedPorts, $untaggedPorts]) {
-            $this->ensure('/interface/bridge/vlan', ['comment' => self::TAG.":vlan-{$net}"], [
+        $table = [];
+        foreach ($networks as $n) {
+            $table[$n->key] = [$n->vlan_id, $n->interface, $tagged($trunkPorts), implode(',', $router->accessPortsFor($n))];
+        }
+        $table['mgmt'] = [$vlan('mgmt')['id'], $vlan('mgmt')['name'], $tagged($native ? [] : $trunkPorts), $native ? implode(',', $trunkPorts) : ''];
+        $table['test'] = [$vlan('test')['id'], $vlan('test')['name'], $tagged($trunkPorts), ''];
+
+        foreach ($table as $key => [$id, $iface, $taggedPorts, $untaggedPorts]) {
+            $this->ensure('/interface/bridge/vlan', ['comment' => self::TAG.":vlan-{$key}"], [
                 'bridge' => self::TRUNK,
-                'vlan-ids' => (string) $vlan($net)['id'],
+                'vlan-ids' => (string) $id,
                 'tagged' => $taggedPorts,
                 'untagged' => $untaggedPorts,
             ]);
-            $this->ensure('/interface/vlan', ['name' => $vlan($net)['name']], [
+            $this->ensure('/interface/vlan', ['name' => $iface], [
                 'interface' => self::TRUNK,
-                'vlan-id' => (string) $vlan($net)['id'],
-                'comment' => self::TAG.":vlan-{$net}",
+                'vlan-id' => (string) $id,
+                'comment' => self::TAG.":vlan-{$key}",
             ]);
         }
 
         $this->ensure('/interface/bridge', ['name' => self::TRUNK], ['vlan-filtering' => 'yes']);
         $this->step(sprintf(
-            '%s: trunk %s, hotspot untagged %s. VLANs hotspot %d, management %d%s, test %d',
+            '%s: trunk %s. Hotspot VLANs %s; management %d%s, test %d',
             self::TRUNK,
             $trunkPorts ? implode(', ', $trunkPorts) : 'none',
-            $accessPorts ? implode(', ', $accessPorts) : 'none',
-            $vlan('hotspot')['id'], $vlan('mgmt')['id'], $native ? ' (untagged on trunks)' : '', $vlan('test')['id']
+            $networks->map(function (HotspotNetwork $n) use ($router) {
+                $untagged = $router->accessPortsFor($n);
+
+                return "{$n->vlan_id} ({$n->name}".($untagged ? ', untagged on '.implode(', ', $untagged) : '').')';
+            })->implode(', '),
+            $vlan('mgmt')['id'], $native ? ' (untagged on trunks)' : '', $vlan('test')['id']
         ));
 
         /* ---------- Optional untagged LAN bridge ---------- */
@@ -370,49 +405,51 @@ class HotspotProvisioner
             }
         }
         if (in_array('WAN', $lists, true)) {
-            $this->ensure('/interface/list/member', ['list' => 'WAN', 'interface' => $wan],
-                ['comment' => self::TAG.':wan-list']);
+            foreach (array_unique([$wan, $uplink]) as $iface) {
+                $this->ensure('/interface/list/member', ['list' => 'WAN', 'interface' => $iface],
+                    ['comment' => self::TAG.':wan-list']);
+            }
         }
 
         /* ---------- Addressing and DHCP per network ---------- */
 
-        $networks = [
-            'hotspot' => [$vlan('hotspot')['name'], $cfg['lease_time']],
-            'mgmt' => [$vlan('mgmt')['name'], $cfg['mgmt_lease_time']],
-            'test' => [$vlan('test')['name'], $cfg['test_lease_time']],
-        ];
+        $addressing = [];
+        foreach ($networks as $n) {
+            $addressing[$n->key] = [$n->name, $n->interface, $n->addressing(), $cfg['lease_time']];
+        }
+        $addressing['mgmt'] = ['Management', $vlan('mgmt')['name'], $router->network('mgmt'), $cfg['mgmt_lease_time']];
+        $addressing['test'] = ['Test', $vlan('test')['name'], $router->network('test'), $cfg['test_lease_time']];
         if ($lanPorts) {
-            $networks['lan'] = [self::LAN_BRIDGE, $cfg['lan_lease_time']];
+            $addressing['lan'] = ['LAN', self::LAN_BRIDGE, $router->network('lan'), $cfg['lan_lease_time']];
         }
 
-        foreach ($networks as $net => [$iface, $lease]) {
-            $n = $router->network($net);
+        foreach ($addressing as $key => [$label, $iface, $n, $lease]) {
             [, $prefix] = explode('/', $n['subnet']);
 
-            $this->ensure('/ip/address', ['comment' => self::TAG.":gateway-{$net}"], [
+            $this->ensure('/ip/address', ['comment' => self::TAG.":gateway-{$key}"], [
                 'address' => "{$n['gateway']}/{$prefix}",
                 'interface' => $iface,
             ]);
-            $this->ensure('/ip/pool', ['name' => "pool-{$net}"], [
+            $this->ensure('/ip/pool', ['name' => "pool-{$key}"], [
                 'ranges' => "{$n['pool_start']}-{$n['pool_end']}",
             ]);
-            $this->ensure('/ip/dhcp-server/network', ['comment' => self::TAG.":dhcp-{$net}"], [
+            $this->ensure('/ip/dhcp-server/network', ['comment' => self::TAG.":dhcp-{$key}"], [
                 'address' => $n['subnet'],
                 'gateway' => $n['gateway'],
                 'dns-server' => $n['gateway'],
             ]);
-            $this->ensure('/ip/dhcp-server', ['name' => "dhcp-{$net}"], [
+            $this->ensure('/ip/dhcp-server', ['name' => "dhcp-{$key}"], [
                 'interface' => $iface,
-                'address-pool' => "pool-{$net}",
+                'address-pool' => "pool-{$key}",
                 'lease-time' => $lease,
                 'disabled' => 'no',
             ]);
-            $this->ensure('/ip/firewall/nat', ['comment' => self::TAG.":masquerade-{$net}"], [
+            $this->ensure('/ip/firewall/nat', ['comment' => self::TAG.":masquerade-{$key}"], [
                 'chain' => 'srcnat', 'action' => 'masquerade',
-                'src-address' => $n['subnet'], 'out-interface' => $wan,
+                'src-address' => $n['subnet'], 'out-interface' => $uplink,
             ]);
             $this->step(sprintf('%s on %s: %s, gateway %s, DHCP %s-%s, lease %s',
-                self::LABELS[$net], $iface, $n['subnet'], $n['gateway'], $n['pool_start'], $n['pool_end'], $lease));
+                $label, $iface, $n['subnet'], $n['gateway'], $n['pool_start'], $n['pool_end'], $lease));
         }
 
         /* ---------- DNS and firewall ---------- */
@@ -421,22 +458,37 @@ class HotspotProvisioner
             ->equal('servers', $cfg['dns_servers'])
             ->equal('allow-remote-requests', 'yes'));
 
-        // Hotspot and test VLANs may only reach the internet: nothing internal, and
-        // nothing internal may reach them. They cannot open Winbox/SSH/API on the router.
-        foreach (['hotspot', 'test'] as $net) {
-            $iface = $vlan($net)['name'];
-            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":isolate-{$net}-out"], [
-                'chain' => 'forward', 'in-interface' => $iface, 'out-interface' => '!'.$wan, 'action' => 'drop',
+        // The router answers DNS for its own networks only, never from the internet
+        // (open resolvers get abused for attacks).
+        foreach (['udp', 'tcp'] as $protocol) {
+            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":dns-from-wan-{$protocol}"], [
+                'chain' => 'input', 'in-interface' => $uplink, 'protocol' => $protocol,
+                'dst-port' => '53', 'action' => 'drop',
             ]);
-            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":isolate-{$net}-in"], [
-                'chain' => 'forward', 'out-interface' => $iface, 'in-interface' => '!'.$wan, 'action' => 'drop',
+        }
+
+        // Hotspot networks and test may only reach the internet: not each other, nothing internal,
+        // and nothing internal may reach them. They cannot open Winbox/SSH/API on the router.
+        $hotspotInterfaces = $networks->mapWithKeys(fn (HotspotNetwork $n) => [$n->key => $n->interface])->all();
+        foreach ($hotspotInterfaces + ['test' => $vlan('test')['name']] as $key => $iface) {
+            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":isolate-{$key}-out"], [
+                'chain' => 'forward', 'in-interface' => $iface, 'out-interface' => '!'.$uplink, 'action' => 'drop',
             ]);
-            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":protect-mgmt-{$net}"], [
+            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":isolate-{$key}-in"], [
+                'chain' => 'forward', 'out-interface' => $iface, 'in-interface' => '!'.$uplink, 'action' => 'drop',
+            ]);
+            $this->ensure('/ip/firewall/filter', ['comment' => self::TAG.":protect-mgmt-{$key}"], [
                 'chain' => 'input', 'in-interface' => $iface, 'protocol' => 'tcp',
                 'dst-port' => self::MGMT_PORTS, 'action' => 'drop',
             ]);
         }
-        $this->step("DNS {$cfg['dns_servers']}. Hotspot and test VLANs reach only the internet; management VLAN can manage the router");
+        $this->step("DNS {$cfg['dns_servers']}, not answered from the internet. Hotspot networks and test reach only the internet; management VLAN can manage the router");
+
+        // FastTrack skips queues and accounting, so hotspot speed limits and RADIUS byte counts
+        // would stop working. Hotspot traffic is accepted just above the FastTrack rule instead.
+        if ($this->exemptFromFasttrack($hotspotInterfaces)) {
+            $this->step('FastTrack skipped for hotspot traffic, so speed limits and accounting apply');
+        }
 
         /* ---------- RADIUS ---------- */
 
@@ -455,18 +507,11 @@ class HotspotProvisioner
             $this->step('RADIUS_HOST not set: users must be created on this router locally');
         }
 
-        /* ---------- Hotspot on the hotspot VLAN ---------- */
+        /* ---------- One hotspot server per network ---------- */
 
-        $this->ensure('/ip/hotspot/profile', ['name' => self::SERVER_PROFILE], [
-            'hotspot-address' => $router->gateway,
-            'dns-name' => $cfg['dns_name'],
-            // External pages log users in with a plain username/password (PAP)
-            'login-by' => $router->usesExternalLogin() ? 'http-chap,http-pap,mac-cookie' : 'http-chap,mac-cookie',
-            'use-radius' => $radius ? 'yes' : 'no',
-            'radius-accounting' => $radius ? 'yes' : 'no',
-            'radius-interim-update' => $cfg['radius']['interim_update'],
-            'nas-port-type' => 'wireless-802.11',
-        ]);
+        // Our login.html replaces the router's page for every network as soon as one network uses it.
+        $ownLoginFile = $networks->contains(fn (HotspotNetwork $n) => $n->usesExternalLogin());
+
         $this->ensure('/ip/hotspot/user/profile', ['name' => 'default'], [
             'shared-users' => '1',
             'rate-limit' => $cfg['rate_limit'],
@@ -475,16 +520,38 @@ class HotspotProvisioner
             'add-mac-cookie' => 'yes',
             'mac-cookie-timeout' => $cfg['mac_cookie_timeout'],
         ]);
-        $this->ensure('/ip/hotspot', ['name' => self::SERVER], [
-            'interface' => $vlan('hotspot')['name'],
-            'profile' => self::SERVER_PROFILE,
-            'idle-timeout' => $cfg['idle_timeout'],
-            'disabled' => 'no',
-        ]);
-        $this->step('Hotspot '.self::SERVER.' on '.$vlan('hotspot')['name']." at http://{$cfg['dns_name']}, {$cfg['rate_limit']} per user");
 
-        if ($router->usesExternalLogin()) {
-            $this->setupExternalLogin($router);
+        $dir = null;
+        foreach ($networks as $n) {
+            $this->ensure('/ip/hotspot/profile', ['name' => $n->profileName()], [
+                'hotspot-address' => $n->gateway,
+                'dns-name' => $cfg['dns_name'],
+                // Our pages log users in with a plain username/password (PAP)
+                'login-by' => $ownLoginFile ? 'http-chap,http-pap,mac-cookie' : 'http-chap,mac-cookie',
+                'use-radius' => $radius ? 'yes' : 'no',
+                'radius-accounting' => $radius ? 'yes' : 'no',
+                'radius-interim-update' => $cfg['radius']['interim_update'],
+                'nas-port-type' => 'wireless-802.11',
+            ]);
+
+            // Every network uses the first network's page folder: one login.html serves them all.
+            if ($dir === null) {
+                $profile = $this->rows((new Query('/ip/hotspot/profile/print'))->where('name', $n->profileName()))[0] ?? [];
+                $dir = trim((string) ($profile['html-directory'] ?? ''), '/') ?: 'hotspot';
+            }
+            $this->ensure('/ip/hotspot/profile', ['name' => $n->profileName()], ['html-directory' => $dir]);
+
+            $this->ensure('/ip/hotspot', ['name' => $n->serverName()], [
+                'interface' => $n->interface,
+                'profile' => $n->profileName(),
+                'idle-timeout' => $cfg['idle_timeout'],
+                'disabled' => 'no',
+            ]);
+            $this->step("Hotspot {$n->serverName()} for {$n->name} on {$n->interface}, {$cfg['rate_limit']} per user");
+        }
+
+        if ($ownLoginFile) {
+            $this->setupExternalLogin($networks, $dir);
         } else {
             $this->step("Login page: the router's built-in page");
         }
@@ -510,13 +577,20 @@ class HotspotProvisioner
     }
 
     /**
-     * Refuses plans that reference missing ports or would cut the dashboard's
-     * own connection to the router halfway through.
+     * Refuses plans that reference missing ports or networks, or would cut
+     * the dashboard's own connection to the router halfway through.
+     *
+     * @param  Collection<int, HotspotNetwork>  $networks
      */
-    private function checkPlan(MikrotikRouter $router, array $info): void
+    private function checkPlan(MikrotikRouter $router, array $info, Collection $networks): void
     {
         $roles = $router->port_roles ?? [];
         $ports = array_column($info['ports'], null, 'name');
+
+        if ($networks->isEmpty()) {
+            throw new RuntimeException('Add at least one hotspot network.');
+        }
+        $vlanIds = $networks->pluck('vlan_id')->map(fn ($id) => (int) $id)->all();
 
         foreach ($roles as $port => $role) {
             if ($role !== 'none' && ! isset($ports[$port])) {
@@ -525,11 +599,14 @@ class HotspotProvisioner
                     $port, implode(', ', array_keys($ports))
                 ));
             }
+            if (str_starts_with($role, 'access:') && ! in_array((int) substr($role, 7), $vlanIds, true)) {
+                throw new RuntimeException("Port \"{$port}\" is set to hotspot VLAN ".substr($role, 7).', but no hotspot network uses that VLAN.');
+            }
         }
         if (count($router->portsWith('wan')) !== 1) {
             throw new RuntimeException('Choose exactly one WAN port.');
         }
-        if (! $router->portsWith('trunk') && ! $router->portsWith('access')) {
+        if (! $router->portsWith('trunk') && ! $router->accessPorts()) {
             throw new RuntimeException('Choose at least one trunk or hotspot port.');
         }
 
@@ -542,7 +619,11 @@ class HotspotProvisioner
         $moved = [];
         foreach ($roles as $port => $role) {
             $current = $ports[$port]['bridge'] ?? null;
-            $target = match ($role) { 'lan' => self::LAN_BRIDGE, 'trunk', 'access' => self::TRUNK, default => null };
+            $target = match (true) {
+                $role === 'lan' => self::LAN_BRIDGE,
+                $role === 'trunk', MikrotikRouter::isAccessRole($role) => self::TRUNK,
+                default => null,
+            };
             if (($target && $current !== $target) || ($role === 'wan' && $current)) {
                 $moved[] = $port;
             }
@@ -571,6 +652,78 @@ class HotspotProvisioner
                 'Choose "Keep current settings" for WAN, or use the address the dashboard connects to.'
             );
         }
+    }
+
+    /** Name of a PPPoE client running on the WAN port, if any. */
+    private function pppoeOn(string $wan): ?string
+    {
+        try {
+            return $this->rows((new Query('/interface/pppoe-client/print'))->where('interface', $wan))[0]['name'] ?? null;
+        } catch (Throwable) {
+            return null; // PPP package missing
+        }
+    }
+
+    /**
+     * Adds "accept established/related" for each hotspot interface just above the
+     * first FastTrack rule, so hotspot connections are never fast-tracked.
+     * Returns false when the router has no FastTrack rule.
+     */
+    private function exemptFromFasttrack(array $interfaces): bool
+    {
+        $fasttrack = null;
+        foreach ($this->rows(new Query('/ip/firewall/filter/print')) as $row) {
+            if (($row['action'] ?? '') === 'fasttrack-connection' && ($row['dynamic'] ?? 'false') !== 'true') {
+                $fasttrack = $row['.id'];
+                break;
+            }
+        }
+        if ($fasttrack === null) {
+            return false;
+        }
+
+        foreach ($interfaces as $key => $iface) {
+            foreach (['in-interface' => 'from', 'out-interface' => 'to'] as $side => $label) {
+                $this->ensureBefore('/ip/firewall/filter', self::TAG.":no-fasttrack-{$key}-{$label}", [
+                    'chain' => 'forward',
+                    'connection-state' => 'established,related',
+                    $side => $iface,
+                    'action' => 'accept',
+                ], $fasttrack);
+            }
+        }
+
+        return true;
+    }
+
+    /** Like ensure(), found by comment, and kept above the rule $beforeId. */
+    private function ensureBefore(string $menu, string $comment, array $attrs, string $beforeId): void
+    {
+        $rows = $this->rows(new Query("{$menu}/print"));
+        $position = array_search($beforeId, array_column($rows, '.id'), true);
+
+        foreach ($rows as $i => $row) {
+            if (($row['comment'] ?? null) !== $comment) {
+                continue;
+            }
+            $set = (new Query("{$menu}/set"))->equal('.id', $row['.id']);
+            foreach ($attrs as $key => $value) {
+                $set->equal($key, $value);
+            }
+            $this->run($set, $menu);
+
+            if ($position !== false && $i > $position) {
+                $this->run((new Query("{$menu}/move"))->equal('numbers', $row['.id'])->equal('destination', $beforeId), $menu);
+            }
+
+            return;
+        }
+
+        $add = (new Query("{$menu}/add"))->equal('comment', $comment)->equal('place-before', $beforeId);
+        foreach ($attrs as $key => $value) {
+            $add->equal($key, $value);
+        }
+        $this->run($add, $menu);
     }
 
     private function port(string $name, array $members, ?string $api, ?string $type = null): array

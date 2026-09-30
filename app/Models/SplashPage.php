@@ -3,17 +3,21 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
 /**
- * The editable captive-portal page: HTML shell, Terms and Conditions,
- * and the rules for the registration form. One row is used.
+ * A captive portal design: login page (HTML shell, Terms, form rules) and
+ * advertisement page. There can be several; each hotspot network picks the
+ * design for its login page and the design for its advertisement page.
+ * The first design is the default.
  */
 class SplashPage extends Model
 {
     public const PLACEHOLDERS = [
         '[[form]]' => 'The login form and Terms pop-up (required)',
         '[[site_name]]' => 'Site name set below',
+        '[[network_name]]' => 'Name of the hotspot network, e.g. School WiFi',
         '[[router_name]]' => 'Name of the router the user is on',
         '[[location]]' => 'Location of that router',
     ];
@@ -21,25 +25,45 @@ class SplashPage extends Model
     public const AD_PLACEHOLDERS = [
         '[[connect]]' => 'The Connect button (required)',
         '[[site_name]]' => 'Site name',
+        '[[network_name]]' => 'Name of the hotspot network, e.g. School WiFi',
         '[[router_name]]' => 'Name of the router the user is on',
         '[[location]]' => 'Location of that router',
     ];
 
     protected $fillable = [
-        'ad_html', 'ad_button_label', 'ad_min_seconds',
+        'name', 'ad_html', 'ad_button_label', 'ad_min_seconds',
         'site_name', 'html', 'terms',
         'citizen_label', 'citizen_hint', 'citizen_pattern',
         'blocked_words', 'success_url',
     ];
 
+    /** The default design: used by networks that haven't picked one. */
     public static function current(): self
     {
         return static::query()->oldest('id')->first() ?? static::create(static::defaults());
     }
 
+    public function isDefault(): bool
+    {
+        return $this->id === (int) static::query()->min('id');
+    }
+
+    /** Networks showing this design's login page. */
+    public function loginNetworks(): HasMany
+    {
+        return $this->hasMany(HotspotNetwork::class, 'login_page_id');
+    }
+
+    /** Networks showing this design's advertisement page. */
+    public function adNetworks(): HasMany
+    {
+        return $this->hasMany(HotspotNetwork::class, 'ad_page_id');
+    }
+
     public static function defaults(): array
     {
         return [
+            'name' => 'Main portal',
             'site_name' => 'Free Public WiFi',
             'html' => static::defaultHtml(),
             'terms' => file_get_contents(resource_path('portal/default-terms.md')),

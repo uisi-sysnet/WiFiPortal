@@ -15,9 +15,6 @@ select{font:inherit;width:100%;padding:9px 11px;border:1px solid #A7B4AD;border-
 #test-msg.ok::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:currentColor;margin-right:8px;vertical-align:1px}
 .btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
 #submit-hint{margin:0;font-size:.9rem;color:var(--ink-2)}
-.login-modes{display:grid;gap:12px}
-.login-modes .check{align-items:flex-start}
-.login-modes .check input{margin-top:3px}
 
 /* Front panel: one block per port, coloured by role */
 .front{display:flex;flex-wrap:wrap;gap:4px;padding:12px;background:#1E2F3A;border-radius:4px;margin:4px 0 12px}
@@ -25,12 +22,12 @@ select{font:inherit;width:100%;padding:9px 11px;border:1px solid #A7B4AD;border-
 .front span.wan{background:#E0A43A;color:#1E2F3A}
 .front span.lan{background:#3D7CC9}
 .front span.trunk{background:repeating-linear-gradient(135deg,var(--signal) 0 6px,#7E5BB5 6px 12px)}
-.front span.access{background:var(--signal)}
 .front span.none{background:#3B4D58;color:#8FA3AB}
 .key{display:flex;flex-wrap:wrap;gap:16px;font-size:.82rem;color:var(--ink-2);margin-bottom:14px}
 .key i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:-1px}
 
 table.ports th,table.ports td{padding:8px 12px;text-align:center;white-space:nowrap}
+table.ports thead th{font-size:.85rem}
 table.ports th[scope=row]{text-align:left;font-weight:400;background:none;color:var(--ink)}
 table.ports th[scope=row] small{display:block;color:var(--ink-2);font-size:.8rem}
 table.ports th[scope=row] small.api{color:var(--warn);font-weight:600}
@@ -42,6 +39,17 @@ table.vlans td.mono{color:var(--ink-2)}
 #port-summary{margin:12px 0 18px}
 
 .choice{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:16px}
+
+/* Hotspot networks */
+.modes{margin:0 0 16px;padding-left:18px;display:grid;gap:4px}
+.net-card{border:1px solid var(--line);border-left:5px solid var(--net-color,var(--signal));border-radius:6px;padding:14px 16px 2px;margin-bottom:14px;background:#FBFCFB}
+.net-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.net-head strong{flex:1}
+.net-head .net-subnet{font-size:.85rem;color:var(--ink-2)}
+.link-btn{font:inherit;font-size:.85rem;background:none;border:0;color:var(--fail);cursor:pointer;padding:2px 4px;text-decoration:underline}
+.row3{display:grid;grid-template-columns:minmax(0,2fr) 110px minmax(0,1.5fr);gap:12px}
+@media (max-width:720px){.row3{grid-template-columns:1fr}}
+.net-errors{margin:-6px 0 12px}
 </style>
 @endpush
 
@@ -49,7 +57,7 @@ table.vlans td.mono{color:var(--ink-2)}
 <div class="page-head">
   <div>
     <h1>Add router</h1>
-    <p class="lede">Pick the model, decide what each port does, and set the VLANs. Trunk ports carry the hotspot, management and test VLANs tagged to your APs and switches. We check everything on the router before changing it.</p>
+    <p class="lede">Pick the model, set up one or more hotspot networks, decide what each port does, and set the VLANs. Trunk ports carry every hotspot VLAN plus management and test, tagged, to your APs and switches. We check everything on the router before changing it.</p>
   </div>
 </div>
 
@@ -58,6 +66,7 @@ table.vlans td.mono{color:var(--ink-2)}
     Fix the highlighted fields and try again.
     @error('ports')<br><strong>{{ $message }}</strong>@enderror
     @error('vlans')<br><strong>{{ $message }}</strong>@enderror
+    @error('networks')<br><strong>{{ $message }}</strong>@enderror
   </div>
 @endif
 
@@ -65,6 +74,7 @@ table.vlans td.mono{color:var(--ink-2)}
   $err = fn ($f) => $errors->has($f) ? 'aria-invalid=true aria-describedby='.$f.'-error' : '';
   $groups = collect($models)->groupBy('group', true);
   $model = old('model', 'hex');
+  $networkErrors = collect($errors->getMessages())->filter(fn ($m, $k) => str_starts_with($k, 'networks.'));
 @endphp
 
 <form id="router-form" method="POST" action="{{ route('routers.store') }}" class="form-layout" novalidate>
@@ -122,6 +132,19 @@ table.vlans td.mono{color:var(--ink-2)}
     </fieldset>
 
     <fieldset>
+      <legend>Hotspot networks</legend>
+      <p class="hint" style="margin:0 0 10px">Each network gets its own VLAN, subnet and hotspot, and they can't reach each other. For each one, choose which <a href="{{ route('splash.edit') }}" target="_blank">captive portal design</a> shows the login page and which shows the advertisement page:</p>
+      <ul class="hint modes">
+        <li><strong>One portal for all:</strong> pick the same two designs on every network.</li>
+        <li><strong>Own portal each:</strong> pick a different design for each network.</li>
+        <li><strong>Same login, different ads:</strong> same login design everywhere, a different advertisement design per network.</li>
+      </ul>
+      <div id="networks"></div>
+      <p style="margin:0 0 14px"><button type="button" class="btn quiet" id="add-network">Add hotspot network</button></p>
+      <p class="hint" style="margin:0 0 18px">For the captive portal and custom URL, the router downloads its <span class="mono">login.html</span> from <span class="mono">{{ config('hotspot.portal_url') }}</span>, so the router must be able to reach that address.</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Ports</legend>
       <div class="model-row">
         <div class="field" style="margin-bottom:8px">
@@ -144,17 +167,11 @@ table.vlans td.mono{color:var(--ink-2)}
       <p class="hint" id="detect-msg" aria-live="polite">Not listed, or has wireless? Fill in the API connection above and read the ports from the router.</p>
 
       <div class="front" id="front" aria-hidden="true"></div>
-      <div class="key">
-        <span><i style="background:#E0A43A"></i>WAN, internet</span>
-        <span><i style="background:repeating-linear-gradient(135deg,var(--signal) 0 3px,#7E5BB5 3px 6px)"></i>Trunk, all VLANs tagged</span>
-        <span><i style="background:var(--signal)"></i>Hotspot, untagged</span>
-        <span><i style="background:#3D7CC9"></i>LAN, untagged office network</span>
-        <span><i style="background:#3B4D58"></i>Not used</span>
-      </div>
+      <div class="key" id="key"></div>
 
       <div class="table-wrap">
         <table class="ports">
-          <thead><tr><th scope="col" style="text-align:left">Port</th><th scope="col">WAN</th><th scope="col">Trunk</th><th scope="col">Hotspot</th><th scope="col">LAN</th><th scope="col">Not used</th></tr></thead>
+          <thead><tr id="port-head"></tr></thead>
           <tbody id="port-rows"></tbody>
         </table>
       </div>
@@ -162,7 +179,7 @@ table.vlans td.mono{color:var(--ink-2)}
     </fieldset>
 
     <fieldset>
-      <legend>VLANs</legend>
+      <legend>Management and test VLANs</legend>
       <p class="hint" style="margin:0 0 12px">Use the same IDs your switches and APs are set to. The interface name is what you will see in Winbox.</p>
       <div class="table-wrap" style="margin-bottom:14px">
         <table class="vlans">
@@ -182,39 +199,19 @@ table.vlans td.mono{color:var(--ink-2)}
                        value="{{ old("vlans.$net.name", $d['name']) }}" maxlength="32" aria-label="{{ $label }} interface name" required
                        @error("vlans.$net.name") aria-invalid="true" @enderror>
               </td>
-              <td class="mono">{{ $next ? ($net === 'hotspot' ? $next['subnet'] : $next[$net.'_subnet']) : '' }}</td>
+              <td class="mono">{{ $next ? $next[$net.'_subnet'] : '' }}</td>
             </tr>
           @endforeach
           </tbody>
         </table>
       </div>
-      @foreach (['vlans.hotspot.id','vlans.hotspot.name','vlans.mgmt.id','vlans.mgmt.name','vlans.test.id','vlans.test.name'] as $f)
+      @foreach (['vlans.mgmt.id','vlans.mgmt.name','vlans.test.id','vlans.test.name'] as $f)
         @error($f)<p class="error">{{ $message }}</p>@enderror
       @endforeach
       <div class="field">
         <label class="check"><input type="checkbox" name="mgmt_native" value="1" @checked(old('mgmt_native', config('hotspot.mgmt_native')))> Send management untagged on trunk ports</label>
         <p class="hint">Turn on if your APs or switches get their management IP without a VLAN tag (native VLAN).</p>
       </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Hotspot login page</legend>
-      @php $loginMode = old('login_mode', 'portal'); @endphp
-      <div class="login-modes" role="radiogroup" aria-label="Login page">
-        <label class="check"><input type="radio" name="login_mode" value="portal" @checked($loginMode === 'portal')>
-          <span>Captive portal from this system<small class="hint" style="display:block;font-weight:400">Login page with resident ID and Terms, then the advertisement page with Connect. <a href="{{ route('splash.edit') }}" target="_blank">Edit captive portal</a></small></span></label>
-        <label class="check"><input type="radio" name="login_mode" value="custom" @checked($loginMode === 'custom')>
-          <span>Custom URL<small class="hint" style="display:block;font-weight:400">Your own external login or splash page</small></span></label>
-        <label class="check"><input type="radio" name="login_mode" value="builtin" @checked($loginMode === 'builtin')>
-          <span>Router's built-in page<small class="hint" style="display:block;font-weight:400">MikroTik's standard username and password page</small></span></label>
-      </div>
-      <div class="field" id="login-url-field" @if($loginMode !== 'custom') hidden @endif style="margin-top:14px">
-        <label for="login_url">External login page URL</label>
-        <input id="login_url" name="login_url" type="text" class="mono" value="{{ old('login_url') }}" placeholder="https://portal.example.com/login" {!! $err('login_url') !!}>
-        <p class="hint">Receives <span class="mono">mac</span>, <span class="mono">ip</span>, <span class="mono">link-login-only</span>, <span class="mono">link-orig</span>, <span class="mono">chap-id</span>, <span class="mono">chap-challenge</span> and <span class="mono">error</span> as query parameters. Its host is allowed before login.</p>
-        @error('login_url')<p class="error" id="login_url-error">{{ $message }}</p>@enderror
-      </div>
-      <p class="hint" style="margin:12px 0 18px">For the captive portal and custom URL, the router downloads its <span class="mono">login.html</span> from <span class="mono">{{ config('hotspot.portal_url') }}</span>, so the router must be able to reach that address.</p>
     </fieldset>
 
     <fieldset>
@@ -237,7 +234,7 @@ table.vlans td.mono{color:var(--ink-2)}
           @error('wan_gateway')<p class="error" id="wan_gateway-error">{{ $message }}</p>@enderror
         </div>
       </div>
-      <p class="hint" style="margin-bottom:18px">Keep current settings if the WAN already works, for example PPPoE set up by hand.</p>
+      <p class="hint" style="margin-bottom:18px">Keep current settings if the WAN already works, for example PPPoE set up by hand (hotspot traffic then goes out through the PPPoE interface).</p>
     </fieldset>
 
     <div class="actions">
@@ -249,10 +246,9 @@ table.vlans td.mono{color:var(--ink-2)}
 
   <aside class="aside" aria-labelledby="alloc-title">
     <h2 id="alloc-title">This router will get</h2>
-    @if ($next)
+    @if ($next && $nextHotspot)
+      <dl id="hs-aside"></dl>
       <dl>
-        <dt>Hotspot</dt><dd class="mono">{{ $next['subnet'] }}</dd>
-        <dt>Devices</dt><dd>up to {{ number_format($plan['hosts_per_block']) }}</dd>
         <dt>Management</dt><dd class="mono">{{ $next['mgmt_subnet'] }}</dd>
         <dt>Test</dt><dd class="mono">{{ $next['test_subnet'] }}</dd>
       </dl>
@@ -264,24 +260,105 @@ table.vlans td.mono{color:var(--ink-2)}
         <dt>Login page</dt><dd class="mono">{{ config('hotspot.dns_name') }}</dd>
         <dt>RADIUS</dt><dd>{{ config('hotspot.radius.host') ?: 'not set' }}</dd>
       </dl>
+      <p>Automatic addresses are the next free ones in <span class="mono">{{ $plan['supernet'] }}</span>. A network can be /16 to /24; a user limit shortens its DHCP range, so no more devices than that can join.</p>
       <p>Each network's gateway is <span class="mono">.1</span>. On management, test and LAN, addresses below <span class="mono">.64</span> are kept for fixed IPs.</p>
-      <p>Hotspot and test users reach only the internet. Only management and LAN can open Winbox on the router.</p>
+      <p>Hotspot and test users reach only the internet, never each other's networks. Only management and LAN can open Winbox on the router.</p>
     @else
-      <p>The address plan is full. Widen <span class="mono">HOTSPOT_SUPERNET</span> before adding more routers.</p>
+      <p>The address plan is full. Widen <span class="mono">HOTSPOT_SUPERNET</span> (or the management, test and LAN plans) before adding more routers.</p>
     @endif
   </aside>
 </form>
+
+{{-- One hotspot network. __ID__ is replaced with a unique number; the server re-numbers them. --}}
+<template id="network-template">
+  <div class="net-card" data-uid="__ID__">
+    <div class="net-head">
+      <strong class="net-title">Hotspot network</strong>
+      <span class="net-subnet mono"></span>
+      <button type="button" class="link-btn net-remove">Remove</button>
+    </div>
+    <div class="row3">
+      <div class="field">
+        <label for="net-__ID__-name">Name</label>
+        <input id="net-__ID__-name" type="text" class="net-name" name="networks[__ID__][name]" maxlength="60" required placeholder="Public WiFi">
+      </div>
+      <div class="field">
+        <label for="net-__ID__-vlan">VLAN ID</label>
+        <input id="net-__ID__-vlan" type="number" class="net-vlan" name="networks[__ID__][vlan_id]" min="2" max="4094" required>
+      </div>
+      <div class="field">
+        <label for="net-__ID__-iface">Interface name</label>
+        <input id="net-__ID__-iface" type="text" class="mono net-iface" name="networks[__ID__][interface]" maxlength="32" required>
+      </div>
+    </div>
+    <div class="row3 net-address">
+      <div class="field">
+        <label for="net-__ID__-prefix">Size</label>
+        <select id="net-__ID__-prefix" class="net-prefix" name="networks[__ID__][prefix]">
+          @foreach ($sizes as $p => $label)<option value="{{ $p }}">{{ $label }}</option>@endforeach
+        </select>
+      </div>
+      <div class="field">
+        <label for="net-__ID__-limit">User limit</label>
+        <input id="net-__ID__-limit" type="number" class="net-limit" name="networks[__ID__][max_users]" min="{{ \App\Services\Mikrotik\SubnetAllocator::MIN_USER_LIMIT }}" placeholder="No limit">
+      </div>
+      <div class="field">
+        <label for="net-__ID__-subnet">Network address <span class="hint">(optional)</span></label>
+        <input id="net-__ID__-subnet" type="text" class="mono net-subnet-input" name="networks[__ID__][subnet]" maxlength="18" placeholder="Automatic">
+      </div>
+    </div>
+    <p class="hint net-capacity" style="margin:-8px 0 14px"></p>
+    <div class="field">
+      <label for="net-__ID__-mode">Login page</label>
+      <select id="net-__ID__-mode" class="net-mode" name="networks[__ID__][login_mode]">
+        @foreach (\App\Models\HotspotNetwork::LOGIN_MODES as $value => $label)
+          <option value="{{ $value }}">{{ $label }}</option>
+        @endforeach
+      </select>
+    </div>
+    <div class="row net-designs">
+      <div class="field">
+        <label for="net-__ID__-login-page">Login page design</label>
+        <select id="net-__ID__-login-page" class="net-login-page" name="networks[__ID__][login_page_id]">
+          @foreach ($designs as $d)<option value="{{ $d->id }}">{{ $d->name }}</option>@endforeach
+        </select>
+      </div>
+      <div class="field">
+        <label for="net-__ID__-ad-page">Advertisement design</label>
+        <select id="net-__ID__-ad-page" class="net-ad-page" name="networks[__ID__][ad_page_id]">
+          @foreach ($designs as $d)<option value="{{ $d->id }}">{{ $d->name }}</option>@endforeach
+        </select>
+      </div>
+    </div>
+    <div class="field net-url" hidden>
+      <label for="net-__ID__-url">External login page URL</label>
+      <input id="net-__ID__-url" type="text" class="mono" name="networks[__ID__][login_url]" placeholder="https://portal.example.com/login">
+      <p class="hint">Receives <span class="mono">mac</span>, <span class="mono">ip</span>, <span class="mono">link-login-only</span>, <span class="mono">link-orig</span>, <span class="mono">chap-id</span>, <span class="mono">chap-challenge</span>, <span class="mono">error</span> and <span class="mono">server-name</span> as query parameters. Its host is allowed before login.</p>
+    </div>
+    <div class="net-errors"></div>
+  </div>
+</template>
 
 <script>
 (function () {
   const models = @json(collect($models)->map(fn ($m) => $m['ports']));
   const oldRoles = @json((object) old('ports', []));
+  const oldNetworks = @json((object) old('networks', []));
+  const networkErrors = @json($networkErrors);
+  const nextHotspot = @json(array_column($nextHotspot, 'subnet'));
+  const defaultPrefix = @json($defaultPrefix);
+  const minLimit = @json(\App\Services\Mikrotik\SubnetAllocator::MIN_USER_LIMIT);
+  const capacity = (prefix) => Math.pow(2, 32 - prefix) - 3;
+  const fmt = (n) => n.toLocaleString('en-US');
+  const maxNetworks = @json($maxNetworks);
+  const defaultDesign = @json(optional($designs->first())->id);
+  const hotspotDefault = @json($vlanDefaults['hotspot']);
   const detectUrl = @json(route('routers.detect'));
   const token = document.querySelector('meta[name=csrf-token]').content;
-  const ROLES = [['wan', 'WAN'], ['trunk', 'Trunk'], ['access', 'Hotspot untagged'], ['lan', 'LAN'], ['none', 'Not used']];
+  const COLORS = ['#0E7C66', '#C2410C', '#7E22CE', '#0369A1', '#B45309', '#BE185D', '#4D7C0F', '#475569'];
 
   const $ = (id) => document.getElementById(id);
-  const select = $('model'), rows = $('port-rows'), front = $('front'), summary = $('port-summary');
+  const select = $('model'), rows = $('port-rows'), head = $('port-head'), front = $('front'), summary = $('port-summary');
   const detectedInput = $('detected'), detectBtn = $('detect'), detectMsg = $('detect-msg');
 
   const testBtn = $('test-conn'), testMsg = $('test-msg'), submitBtn = $('submit-btn'), submitHint = $('submit-hint');
@@ -355,12 +432,168 @@ table.vlans td.mono{color:var(--ink-2)}
     }
   });
 
+  /* ---------- Hotspot networks ---------- */
+
+  const list = $('networks'), template = $('network-template').innerHTML;
+  let nextUid = 0;
+
+  // {uid, name, vlan, color} for every card, in order
+  function networks() {
+    return [...list.querySelectorAll('.net-card')].map((card, i) => ({
+      uid: card.dataset.uid,
+      name: card.querySelector('.net-name').value.trim() || 'Network ' + (i + 1),
+      vlan: card.querySelector('.net-vlan').value.trim(),
+      color: COLORS[i % COLORS.length],
+    }));
+  }
+
+  function usedVlans() {
+    return [...document.querySelectorAll('.net-vlan, input[id$="-id"][data-net]')].map((i) => +i.value).filter(Boolean);
+  }
+
+  function addNetwork(values) {
+    const uid = String(values.uid ?? nextUid);
+    nextUid = Math.max(nextUid, +uid + 1);
+    const wrap = document.createElement('div');
+    wrap.innerHTML = template.replaceAll('__ID__', uid).trim();
+    const card = wrap.firstElementChild;
+    list.appendChild(card);
+
+    card.querySelector('.net-name').value = values.name ?? '';
+    card.querySelector('.net-vlan').value = values.vlan_id ?? '';
+    card.querySelector('.net-iface').value = values.interface ?? '';
+    card.querySelector('.net-mode').value = values.login_mode ?? 'portal';
+    card.querySelector('.net-login-page').value = values.login_page_id ?? defaultDesign;
+    card.querySelector('.net-ad-page').value = values.ad_page_id ?? defaultDesign;
+    card.querySelector('.net-url input').value = values.login_url ?? '';
+    card.querySelector('.net-prefix').value = values.prefix ?? defaultPrefix;
+    card.querySelector('.net-limit').value = values.max_users ?? '';
+    card.querySelector('.net-subnet-input').value = values.subnet ?? '';
+
+    // Server-side errors for this card
+    const errors = Object.entries(networkErrors).filter(([key]) => key.startsWith('networks.' + uid + '.'));
+    const errBox = card.querySelector('.net-errors');
+    errors.forEach(([key, messages]) => {
+      const p = document.createElement('p');
+      p.className = 'error';
+      p.textContent = messages[0];
+      errBox.appendChild(p);
+      const field = key.split('.').pop();
+      const input = card.querySelector('[name$="[' + field + ']"]');
+      if (input) input.setAttribute('aria-invalid', 'true');
+    });
+
+    card.querySelector('.net-mode').addEventListener('change', () => { syncCard(card); });
+    card.querySelector('.net-vlan').addEventListener('input', (e) => {
+      const iface = card.querySelector('.net-iface');
+      const m = iface.value.match(/^vlan\d*-(.+)$/);
+      if (m && /^\d+$/.test(e.target.value)) iface.value = 'vlan' + e.target.value + '-' + m[1];
+      networksChanged();
+    });
+    card.querySelector('.net-name').addEventListener('input', networksChanged);
+    // A typed address sets the size; the size and limit update the capacity line.
+    card.querySelector('.net-subnet-input').addEventListener('input', (e) => {
+      const m = /\/(\d{1,2})\s*$/.exec(e.target.value);
+      const sel = card.querySelector('.net-prefix');
+      if (m && sel.querySelector('option[value="' + m[1] + '"]')) sel.value = m[1];
+      networksChanged();
+    });
+    card.querySelector('.net-prefix').addEventListener('change', networksChanged);
+    card.querySelector('.net-limit').addEventListener('input', networksChanged);
+    card.querySelector('.net-remove').addEventListener('click', () => {
+      card.remove();
+      networksChanged();
+    });
+    syncCard(card);
+    return card;
+  }
+
+  function syncCard(card) {
+    const mode = card.querySelector('.net-mode').value;
+    card.querySelector('.net-designs').hidden = mode !== 'portal';
+    card.querySelector('.net-url').hidden = mode !== 'custom';
+  }
+
+  // "Automatic /20" or the typed address, and how many users it will take.
+  function addressOf(card) {
+    const typed = card.querySelector('.net-subnet-input').value.trim();
+    const prefix = +card.querySelector('.net-prefix').value;
+    const limit = +card.querySelector('.net-limit').value || null;
+    const cap = capacity(prefix);
+    const users = limit ? fmt(limit) + ' users (limit)' : 'up to ' + fmt(cap) + ' users, no limit';
+    let warn = '';
+    if (limit && (limit < minLimit || limit > cap)) {
+      warn = cap < minLimit
+        ? ' A /' + prefix + ' is too small for a limit; leave it empty.'
+        : ' The limit must be ' + fmt(minLimit) + ' to ' + fmt(cap) + '.';
+    }
+    return { label: typed || 'automatic /' + prefix, users, warn };
+  }
+
+  function newNetwork() {
+    const taken = usedVlans();
+    let vlan = hotspotDefault.id;
+    while (taken.includes(vlan)) vlan++;
+    const n = list.children.length + 1;
+    const card = addNetwork({
+      name: n === 1 ? 'Public WiFi' : 'Hotspot ' + n,
+      vlan_id: vlan,
+      interface: n === 1 ? hotspotDefault.name.replace(/^vlan\d*/, 'vlan' + vlan) : 'vlan' + vlan + '-hotspot' + n,
+    });
+    networksChanged();
+    card.querySelector('.net-name').focus();
+    card.querySelector('.net-name').select();
+  }
+  $('add-network').addEventListener('click', newNetwork);
+
+  // Cards, port columns, front panel and aside all follow the network list.
+  function networksChanged() {
+    const nets = networks();
+    const cards = [...list.querySelectorAll('.net-card')];
+    cards.forEach((card, i) => {
+      const a = addressOf(card);
+      card.style.setProperty('--net-color', nets[i].color);
+      card.querySelector('.net-title').textContent = nets[i].name;
+      card.querySelector('.net-subnet').textContent = a.label;
+      card.querySelector('.net-capacity').textContent = 'Gateway .1, DHCP for ' + a.users + '.' + a.warn;
+      card.querySelector('.net-capacity').style.color = a.warn ? 'var(--fail)' : '';
+      card.querySelector('.net-remove').hidden = nets.length === 1;
+    });
+    $('add-network').hidden = nets.length >= maxNetworks;
+
+    const aside = $('hs-aside');
+    if (aside) {
+      aside.replaceChildren(...nets.flatMap((n, i) => {
+        const a = addressOf(cards[i]);
+        const dt = document.createElement('dt'), dd = document.createElement('dd');
+        dt.textContent = n.name;
+        dd.innerHTML = '<span class="mono"></span><br><small></small>';
+        dd.querySelector('.mono').textContent = a.label + (n.vlan ? ', VLAN ' + n.vlan : '');
+        dd.querySelector('small').textContent = a.users;
+        return [dt, dd];
+      }));
+    }
+    render(currentRoles());
+  }
+
+  /* ---------- Ports ---------- */
+
   let detected = null;
   try { detected = JSON.parse(detectedInput.value || 'null'); } catch (e) {}
 
   const typeOf = (n) => /^q?sfp/.test(n) ? 'SFP' : /^combo/.test(n) ? 'Combo' : 'Ethernet';
   const short = (n) => n.replace(/^ether/, '').replace(/^sfp-sfpplus/, 'S+').replace(/^sfp28-/, 'S28-')
                         .replace(/^q?sfp/, 'S').replace(/^combo/, 'C').replace(/^(wlan|wifi)/, 'W');
+
+  // Role values in the form: wan, trunk, access:<vlan>, lan, none.
+  // Internally a hotspot port is "net:<uid>", so it survives VLAN ID edits.
+  function roleColumns() {
+    return [
+      ['wan', 'WAN'], ['trunk', 'Trunk'],
+      ...networks().map((n) => ['net:' + n.uid, 'Hotspot: ' + n.name, n]),
+      ['lan', 'LAN'], ['none', 'Not used'],
+    ];
+  }
 
   function currentPorts() {
     if (select.value === 'detected' && detected) {
@@ -370,25 +603,63 @@ table.vlans td.mono{color:var(--ink-2)}
   }
 
   // Sensible start: the port the dashboard connects through (or the first) is WAN,
-  // wired ports are trunks, wireless interfaces carry the hotspot untagged.
+  // wired ports are trunks, wireless interfaces carry the first hotspot network untagged.
   function defaults(ports) {
     const roles = {};
+    const first = networks()[0];
     const direct = ports.find((p) => p.api && !p.bridge);
     const wan = direct ? direct.name : (ports[0] && ports[0].name);
     ports.forEach((p) => {
-      roles[p.name] = p.name === wan ? 'wan' : (p.type === 'Wireless' ? 'access' : 'trunk');
+      roles[p.name] = p.name === wan ? 'wan' : (p.type === 'Wireless' && first ? 'net:' + first.uid : 'trunk');
+    });
+    return roles;
+  }
+
+  // Saved roles ("access:10", or plain "access" for the first network) to internal ones.
+  function fromSaved(saved) {
+    const nets = networks(), roles = {};
+    Object.entries(saved).forEach(([port, role]) => {
+      if (role === 'access') role = nets[0] ? 'net:' + nets[0].uid : 'none';
+      const m = /^access:(\d+)$/.exec(role);
+      if (m) {
+        const n = nets.find((x) => x.vlan === m[1]);
+        role = n ? 'net:' + n.uid : 'none';
+      }
+      roles[port] = role;
     });
     return roles;
   }
 
   function render(roles) {
     const ports = currentPorts();
+    const columns = roleColumns();
+    const vlanOf = Object.fromEntries(networks().map((n) => ['net:' + n.uid, n.vlan]));
+
+    head.innerHTML = '<th scope="col" style="text-align:left">Port</th>';
+    columns.forEach(([, label, net]) => {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      th.textContent = label;
+      if (net) th.style.color = net.color;
+      head.appendChild(th);
+    });
+    $('key').innerHTML = '';
+    [['#E0A43A', 'WAN, internet'], ['repeating-linear-gradient(135deg,var(--signal) 0 3px,#7E5BB5 3px 6px)', 'Trunk, all VLANs tagged'],
+      ...networks().map((n) => [n.color, n.name + ', untagged']), ['#3D7CC9', 'LAN, untagged office network'], ['#3B4D58', 'Not used']]
+      .forEach(([bg, label]) => {
+        const s = document.createElement('span');
+        s.innerHTML = '<i></i>';
+        s.firstChild.style.background = bg;
+        s.append(label);
+        $('key').appendChild(s);
+      });
+
     rows.innerHTML = '';
     if (!ports.length) {
-      rows.innerHTML = '<tr><td colspan="6" class="hint" style="text-align:left">Choose a model, or read the ports from the router.</td></tr>';
+      rows.innerHTML = '<tr><td colspan="' + (columns.length + 1) + '" class="hint" style="text-align:left">Choose a model, or read the ports from the router.</td></tr>';
       return update();
     }
-    roles = roles || defaults(ports);
+    roles = roles && Object.keys(roles).length ? roles : defaults(ports);
     ports.forEach((p) => {
       const tr = document.createElement('tr');
       const th = document.createElement('th');
@@ -405,13 +676,15 @@ table.vlans td.mono{color:var(--ink-2)}
         th.appendChild(s);
       }
       tr.appendChild(th);
-      ROLES.forEach(([value, label]) => {
+      const current = columns.some(([v]) => v === roles[p.name]) ? roles[p.name] : 'none';
+      columns.forEach(([value, label]) => {
         const td = document.createElement('td');
         const input = document.createElement('input');
         input.type = 'radio';
         input.name = 'ports[' + p.name + ']';
-        input.value = value;
-        input.checked = (roles[p.name] || 'none') === value;
+        input.value = value.startsWith('net:') ? 'access:' + vlanOf[value] : value;
+        input.dataset.role = value;
+        input.checked = current === value;
         input.setAttribute('aria-label', p.name + ' as ' + label);
         td.appendChild(input);
         tr.appendChild(td);
@@ -423,34 +696,40 @@ table.vlans td.mono{color:var(--ink-2)}
 
   function currentRoles() {
     const r = {};
-    rows.querySelectorAll('input[type=radio]:checked').forEach((i) => { r[i.name.slice(6, -1)] = i.value; });
+    rows.querySelectorAll('input[type=radio]:checked').forEach((i) => { r[i.name.slice(6, -1)] = i.dataset.role; });
     return r;
   }
 
   function update() {
     const r = currentRoles();
+    const nets = networks();
+    const netOf = Object.fromEntries(nets.map((n) => ['net:' + n.uid, n]));
     front.innerHTML = '';
-    const by = { wan: [], trunk: [], access: [], lan: [], none: [] };
+    const by = { wan: [], trunk: [], lan: [], none: [] };
+    const access = {};
     Object.entries(r).forEach(([name, role]) => {
-      by[role].push(name);
       const s = document.createElement('span');
-      s.className = role;
       s.textContent = short(name);
+      if (netOf[role]) {
+        (access[role] = access[role] || []).push(name);
+        s.style.background = netOf[role].color;
+      } else {
+        by[role].push(name);
+        s.className = role;
+      }
       front.appendChild(s);
     });
+    const accessCount = Object.values(access).flat().length;
     const parts = [];
-    const ok = by.wan.length === 1 && (by.trunk.length + by.access.length) > 0;
+    const ok = by.wan.length === 1 && (by.trunk.length + accessCount) > 0;
     parts.push(by.wan.length ? 'WAN: ' + by.wan.join(', ') + '.' : 'Choose a WAN port.');
     if (by.trunk.length) parts.push('Trunk: ' + by.trunk.join(', ') + '.');
-    if (by.access.length) parts.push('Hotspot untagged: ' + by.access.join(', ') + '.');
-    if (!by.trunk.length && !by.access.length) parts.push('Choose at least one trunk or hotspot port.');
+    Object.entries(access).forEach(([role, ports]) => parts.push(netOf[role].name + ' untagged: ' + ports.join(', ') + '.'));
+    if (!by.trunk.length && !accessCount) parts.push('Choose at least one trunk or hotspot port.');
     parts.push(by.lan.length ? 'LAN: ' + by.lan.join(', ') + '.' : 'No LAN.');
     summary.textContent = parts.join(' ');
     summary.style.color = ok ? '' : 'var(--fail)';
-    if ($('lan-aside')) {
-      $('lan-aside').hidden = !by.lan.length;
-      $('lan-none').hidden = !!by.lan.length;
-    }
+    if ($('lan-aside')) $('lan-aside').hidden = !by.lan.length;
   }
 
   // Only one WAN: picking WAN on a port frees the previous WAN port.
@@ -502,10 +781,6 @@ table.vlans td.mono{color:var(--ink-2)}
     });
   });
 
-  document.querySelectorAll('input[name=login_mode]').forEach((r) => r.addEventListener('change', () => {
-    $('login-url-field').hidden = document.querySelector('input[name=login_mode]:checked').value !== 'custom';
-  }));
-
   document.querySelectorAll('input[name=wan_mode]').forEach((r) => r.addEventListener('change', () => {
     $('wan-static').hidden = document.querySelector('input[name=wan_mode]:checked').value !== 'static';
   }));
@@ -516,7 +791,15 @@ table.vlans td.mono{color:var(--ink-2)}
     if ([plain, secure, ''].includes(port.value)) port.value = ssl.checked ? secure : plain;
   });
 
-  render(Object.keys(oldRoles).length ? oldRoles : null);
+  // Start: the networks from a failed submit, or one "Public WiFi" network.
+  const saved = Object.entries(oldNetworks);
+  if (saved.length) {
+    saved.forEach(([uid, values]) => addNetwork({ ...values, uid }));
+  } else {
+    addNetwork({ name: 'Public WiFi', vlan_id: hotspotDefault.id, interface: hotspotDefault.name });
+  }
+  networksChanged();
+  render(Object.keys(oldRoles).length ? fromSaved(oldRoles) : null);
 })();
 </script>
 @endsection

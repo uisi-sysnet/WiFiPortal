@@ -3,13 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProvisionHotspot;
+use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
+use App\Models\SplashPage;
 use App\Services\Mikrotik\HotspotProvisioner;
 use App\Services\Mikrotik\SubnetAllocator;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -23,10 +27,13 @@ class RouterController extends Controller
     /** How long a passed test stays valid, in seconds. */
     private const TEST_TTL = 900;
 
+    /** Hotspot networks per router. */
+    private const MAX_NETWORKS = 8;
+
     public function index(SubnetAllocator $allocator)
     {
         return view('routers.index', [
-            'routers' => MikrotikRouter::query()->orderBy('name')->paginate(50),
+            'routers' => MikrotikRouter::query()->with('hotspotNetworks')->orderBy('name')->paginate(50),
             'plan' => $allocator->summary(),
         ]);
     }
@@ -41,9 +48,14 @@ class RouterController extends Controller
 
         return view('routers.create', [
             'next' => $next,
+            'nextHotspot' => $allocator->nextHotspot(self::MAX_NETWORKS, partial: true),
+            'sizes' => SubnetAllocator::sizeOptions(),
+            'defaultPrefix' => $allocator->defaultPrefix(),
             'plan' => $allocator->summary(),
             'models' => config('mikrotik_models'),
             'vlanDefaults' => config('hotspot.vlans'),
+            'designs' => $this->designs(),
+            'maxNetworks' => self::MAX_NETWORKS,
         ]);
     }
 
@@ -95,17 +107,23 @@ class RouterController extends Controller
             ...$this->connectionRules(),
             'model' => ['required', Rule::in([...array_keys(config('mikrotik_models')), 'detected'])],
             'ports' => ['required', 'array', 'min:2'],
-            'ports.*' => ['required', Rule::in(MikrotikRouter::ROLES)],
+            'ports.*' => ['required', 'string', function ($attr, $value, $fail) {
+                if (! in_array($value, MikrotikRouter::ROLES, true) && ! MikrotikRouter::isAccessRole((string) $value)) {
+                    $fail('Choose a role for every port.');
+                }
+            }],
             'wan_mode' => ['required', Rule::in(['keep', 'dhcp', 'static'])],
             'wan_address' => ['exclude_unless:wan_mode,static', 'required', $this->cidrRule()],
             'wan_gateway' => ['exclude_unless:wan_mode,static', 'required', 'ipv4'],
             ...$this->vlanRules(),
             'mgmt_native' => ['sometimes', 'boolean'],
-            'login_mode' => ['required', Rule::in(array_keys(MikrotikRouter::LOGIN_MODES))],
-            'login_url' => ['exclude_unless:login_mode,custom', 'required', 'url:http,https', 'max:255'],
+            'networks' => ['required', 'array', 'min:1', 'max:'.self::MAX_NETWORKS],
+            ...$this->networkRules('networks.*.'),
         ], [
             'name.regex' => 'Use letters, numbers, spaces, dots, dashes or underscores.',
             'ports.required' => 'Choose a router model or read the ports from the router.',
+            'networks.required' => 'Add at least one hotspot network.',
+            ...$this->networkMessages('networks.*.'),
         ]);
 
         // The connection must have been tested successfully with exactly these details.
@@ -122,18 +140,29 @@ class RouterController extends Controller
             }
         }
         $count = array_count_values($roles);
+        $accessCount = count(array_filter($roles, fn ($r) => MikrotikRouter::isAccessRole($r)));
         if (($count['wan'] ?? 0) !== 1) {
             throw ValidationException::withMessages(['ports' => 'Choose exactly one WAN port.']);
         }
-        if (($count['trunk'] ?? 0) + ($count['access'] ?? 0) < 1) {
+        if (($count['trunk'] ?? 0) + $accessCount < 1) {
             throw ValidationException::withMessages(['ports' => 'Choose at least one trunk or hotspot port.']);
         }
 
-        $vlans = $this->checkedVlans($data['vlans'], array_keys($roles));
+        $networks = $this->newNetworks(array_values($data['networks']), first: true);
+        // Typed addresses and user limits are checked now, so mistakes come back with the form.
+        $this->assignAddresses($data['networks'], $networks, $allocator, 'networks.');
+        $vlans = $this->checkedVlans($data['vlans'], $networks, array_keys($roles));
         $vlans['mgmt']['native'] = $request->boolean('mgmt_native');
 
+        $vlanIds = $networks->pluck('vlan_id')->all();
+        foreach ($roles as $port => $role) {
+            if (str_starts_with($role, 'access:') && ! in_array((int) substr($role, 7), $vlanIds, true)) {
+                throw ValidationException::withMessages(['ports' => "{$port} is set to a hotspot network that is not in the list."]);
+            }
+        }
+
         $router = new MikrotikRouter([
-            ...Arr::except($data, ['ports', 'vlans', 'mgmt_native']),
+            ...Arr::except($data, ['ports', 'vlans', 'mgmt_native', 'networks']),
             'vlans' => $vlans,
             'use_ssl' => $request->boolean('use_ssl'),
             'port_roles' => $roles,
@@ -142,7 +171,7 @@ class RouterController extends Controller
 
         // Fail fast: wrong IP, credentials, port names, or a plan that would cut the connection.
         try {
-            $router->fill($provisioner->probe($router));
+            $router->fill($provisioner->probe($router, $networks));
         } catch (Throwable $e) {
             return back()
                 ->withInput($request->except('password'))
@@ -151,15 +180,23 @@ class RouterController extends Controller
 
         try {
             // Lock so two admins adding routers at once never get the same subnets.
-            Cache::lock('hotspot:subnet-allocation', 10)->block(5, function () use ($router, $allocator) {
-                $router->fill($allocator->next());
-                $router->status = MikrotikRouter::STATUS_PENDING;
-                $router->save();
+            Cache::lock('hotspot:subnet-allocation', 10)->block(5, function () use ($router, $networks, $allocator, $data) {
+                DB::transaction(function () use ($router, $networks, $allocator, $data) {
+                    $router->fill($allocator->next());
+                    $router->status = MikrotikRouter::STATUS_PENDING;
+                    $router->save();
+
+                    // Again inside the lock: another admin may have taken an address meanwhile.
+                    $this->assignAddresses($data['networks'], $networks, $allocator, 'networks.');
+                    $router->hotspotNetworks()->saveMany($networks);
+                });
             });
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (Throwable $e) {
             return back()
                 ->withInput($request->except('password'))
-                ->withErrors(['name' => $e->getMessage()]);
+                ->withErrors(['networks' => $e->getMessage()]);
         }
 
         $request->session()->forget(self::TEST_KEY);
@@ -170,9 +207,95 @@ class RouterController extends Controller
             ->with('status', "{$router->name} added. The configuration is being applied.");
     }
 
-    public function show(MikrotikRouter $router)
+    public function show(MikrotikRouter $router, SubnetAllocator $allocator)
     {
-        return view('routers.show', ['router' => $router]);
+        $router->load('hotspotNetworks.loginPage', 'hotspotNetworks.adPage');
+
+        return view('routers.show', [
+            'router' => $router,
+            'designs' => $this->designs(),
+            'nextHotspot' => $allocator->nextHotspot(1, partial: true)[0] ?? null,
+            'sizes' => SubnetAllocator::sizeOptions(),
+            'defaultPrefix' => $allocator->defaultPrefix(),
+            'maxNetworks' => self::MAX_NETWORKS,
+            'vlanDefaults' => config('hotspot.vlans'),
+        ]);
+    }
+
+    /** Adds a hotspot network to a router (carried on its trunk ports) and applies it. */
+    public function addNetwork(Request $request, MikrotikRouter $router, SubnetAllocator $allocator)
+    {
+        $data = $request->validate($this->networkRules(), $this->networkMessages());
+        $existing = $router->hotspotNetworks()->get();
+
+        if ($existing->count() >= self::MAX_NETWORKS) {
+            throw ValidationException::withMessages(['network' => 'A router can have up to '.self::MAX_NETWORKS.' hotspot networks.']);
+        }
+        $network = $this->newNetworks([$data], first: $existing->isEmpty())->first();
+
+        $taken = [
+            ...$existing->pluck('vlan_id')->all(),
+            ...array_map(fn ($net) => (int) $router->vlan($net)['id'], array_keys(MikrotikRouter::NETWORKS)),
+        ];
+        if (in_array($network->vlan_id, $taken, true)) {
+            throw ValidationException::withMessages(['vlan_id' => "VLAN {$network->vlan_id} is already used on this router."]);
+        }
+        $names = [
+            ...$existing->pluck('interface')->all(),
+            ...array_map(fn ($net) => $router->vlan($net)['name'], array_keys(MikrotikRouter::NETWORKS)),
+            ...array_keys($router->port_roles ?? []),
+            HotspotProvisioner::TRUNK, HotspotProvisioner::LAN_BRIDGE,
+        ];
+        if (in_array($network->interface, $names, true)) {
+            throw ValidationException::withMessages(['interface' => "{$network->interface} is already an interface on this router."]);
+        }
+
+        $this->assignAddresses([$data], collect([$network]), $allocator);
+        try {
+            Cache::lock('hotspot:subnet-allocation', 10)->block(5, function () use ($router, $network, $allocator, $data) {
+                $this->assignAddresses([$data], collect([$network]), $allocator);
+                $router->hotspotNetworks()->save($network);
+            });
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            return back()->withInput()->withErrors(['network' => $e->getMessage()]);
+        }
+
+        $router->forceFill(['status' => MikrotikRouter::STATUS_PENDING, 'last_error' => null])->save();
+        ProvisionHotspot::dispatch($router);
+
+        return redirect()->route('routers.show', $router)
+            ->with('status', "{$network->name} added on VLAN {$network->vlan_id} ({$network->subnet}). The configuration is being applied.");
+    }
+
+    /**
+     * Renames a network, changes its pages, address or user limit. Designs apply on
+     * the next page load; a new login page type, URL, address or limit is re-applied to the router.
+     */
+    public function updateNetwork(Request $request, HotspotNetwork $network, SubnetAllocator $allocator)
+    {
+        $rules = Arr::only($this->networkRules(), ['name', 'login_mode', 'login_url', 'login_page_id', 'ad_page_id', 'max_users']);
+        $rules['subnet'] = ['required', 'string', 'max:18'];
+        $data = $request->validate($rules, $this->networkMessages());
+        $data['login_url'] = $data['login_mode'] === 'custom' ? ($data['login_url'] ?? null) : null;
+
+        $network->fill(Arr::except($data, ['subnet', 'max_users']));
+        Cache::lock('hotspot:subnet-allocation', 10)->block(5, function () use ($network, $allocator, $data) {
+            $this->assignAddresses([$data], collect([$network]), $allocator, exceptNetworkId: $network->id);
+        });
+        $reapply = $network->isDirty(['login_mode', 'login_url', 'subnet', 'max_users']);
+        $network->save();
+
+        $router = $network->router;
+        if ($reapply) {
+            $router->forceFill(['status' => MikrotikRouter::STATUS_PENDING, 'last_error' => null])->save();
+            ProvisionHotspot::dispatch($router);
+        }
+
+        return redirect()->route('routers.show', $router)->with('status', $reapply
+            ? "{$network->name} saved. Updating the router."
+            : "{$network->name} saved. Phones see the change on their next visit.");
     }
 
     public function provision(MikrotikRouter $router)
@@ -238,6 +361,95 @@ class RouterController extends Controller
         ];
     }
 
+    /** Rules for one hotspot network; $prefix is "networks.*." inside the Add router form. */
+    private function networkRules(string $prefix = ''): array
+    {
+        $design = ['nullable', 'integer', Rule::exists('splash_pages', 'id')];
+
+        return [
+            "{$prefix}name" => ['required', 'string', 'max:60'],
+            "{$prefix}vlan_id" => ['required', 'integer', 'between:2,4094'],
+            "{$prefix}interface" => ['required', 'string', 'regex:/^[A-Za-z0-9._-]{1,32}$/'],
+            "{$prefix}login_mode" => ['required', Rule::in(array_keys(HotspotNetwork::LOGIN_MODES))],
+            "{$prefix}login_url" => ['nullable', "required_if:{$prefix}login_mode,custom", 'url:http,https', 'max:255'],
+            "{$prefix}login_page_id" => $design,
+            "{$prefix}ad_page_id" => $design,
+            // Empty subnet = next free one of this size from the address plan
+            "{$prefix}subnet" => ['nullable', 'string', 'max:18'],
+            "{$prefix}prefix" => ['nullable', 'integer', 'between:'.SubnetAllocator::MIN_PREFIX.','.SubnetAllocator::MAX_PREFIX],
+            // Empty = no limit
+            "{$prefix}max_users" => ['nullable', 'integer', 'min:'.SubnetAllocator::MIN_USER_LIMIT],
+        ];
+    }
+
+    private function networkMessages(string $prefix = ''): array
+    {
+        return [
+            "{$prefix}name.required" => 'Give each hotspot network a name, e.g. Public WiFi.',
+            "{$prefix}interface.regex" => 'Interface names use letters, numbers, dots, dashes or underscores (up to 32).',
+            "{$prefix}login_url.required_if" => 'Enter the external login page URL.',
+            "{$prefix}max_users.min" => 'The user limit must be at least '.SubnetAllocator::MIN_USER_LIMIT.', or empty for no limit.',
+        ];
+    }
+
+    /**
+     * Gives each network its subnet, gateway and DHCP range: the address typed in
+     * (checked for overlaps) or the next free one of the chosen size, with the
+     * DHCP range cut to the user limit. Errors point at the row's field.
+     *
+     * @param  array<int|string, array>  $rows  validated input, keyed as in the form
+     * @param  Collection<int, HotspotNetwork>  $networks  same order as $rows
+     */
+    private function assignAddresses(array $rows, Collection $networks, SubnetAllocator $allocator, string $errorPrefix = '', ?int $exceptNetworkId = null): void
+    {
+        $taken = [];
+        $keys = array_keys($rows);
+
+        foreach (array_values($rows) as $i => $row) {
+            $field = fn (string $name) => $errorPrefix === '' ? $name : "{$errorPrefix}{$keys[$i]}.{$name}";
+            $maxUsers = isset($row['max_users']) && $row['max_users'] !== '' ? (int) $row['max_users'] : null;
+
+            try {
+                $subnet = trim((string) ($row['subnet'] ?? '')) !== ''
+                    ? $allocator->checkHotspotSubnet($row['subnet'], $exceptNetworkId, $taken)
+                    : $allocator->nextHotspotSubnet(isset($row['prefix']) ? (int) $row['prefix'] : null, $taken);
+            } catch (RuntimeException $e) {
+                throw ValidationException::withMessages([$field('subnet') => $e->getMessage()]);
+            }
+            try {
+                $allocator->checkUserLimit($maxUsers, $subnet);
+            } catch (RuntimeException $e) {
+                throw ValidationException::withMessages([$field('max_users') => $e->getMessage()]);
+            }
+
+            $taken[] = $subnet;
+            $networks[$i]->fill($allocator->hotspotAddressing($subnet, $maxUsers));
+        }
+    }
+
+    /** @return Collection<int, HotspotNetwork> unsaved networks; the first on a router keeps the original RouterOS names */
+    private function newNetworks(array $rows, bool $first): Collection
+    {
+        return collect($rows)->values()->map(fn (array $n, int $i) => new HotspotNetwork([
+            'name' => trim($n['name']),
+            'key' => HotspotNetwork::keyFor((int) $n['vlan_id'], $first && $i === 0),
+            'vlan_id' => (int) $n['vlan_id'],
+            'interface' => $n['interface'],
+            'login_mode' => $n['login_mode'],
+            'login_url' => $n['login_mode'] === 'custom' ? $n['login_url'] : null,
+            'login_page_id' => $n['login_page_id'] ?? null,
+            'ad_page_id' => $n['ad_page_id'] ?? null,
+        ]));
+    }
+
+    /** Designs to choose from; makes sure the default exists. */
+    private function designs(): Collection
+    {
+        SplashPage::current();
+
+        return SplashPage::query()->orderBy('id')->get(['id', 'name']);
+    }
+
     private function vlanRules(): array
     {
         $rules = ['vlans' => ['required', 'array']];
@@ -249,20 +461,23 @@ class RouterController extends Controller
         return $rules;
     }
 
-    /** VLAN IDs and interface names must be unique and must not clash with ports or bridges. */
-    private function checkedVlans(array $input, array $portNames): array
+    /**
+     * VLAN IDs and interface names (management, test and every hotspot network)
+     * must be unique and must not clash with ports or bridges.
+     */
+    private function checkedVlans(array $input, Collection $networks, array $portNames): array
     {
         $vlans = [];
         foreach (array_keys(MikrotikRouter::NETWORKS) as $net) {
             $vlans[$net] = ['id' => (int) $input[$net]['id'], 'name' => $input[$net]['name']];
         }
 
-        $ids = array_column($vlans, 'id');
+        $ids = [...array_column($vlans, 'id'), ...$networks->pluck('vlan_id')->all()];
         if (count(array_unique($ids)) !== count($ids)) {
             throw ValidationException::withMessages(['vlans' => 'Each network needs its own VLAN ID.']);
         }
 
-        $names = array_column($vlans, 'name');
+        $names = [...array_column($vlans, 'name'), ...$networks->pluck('interface')->all()];
         $reserved = [...$portNames, HotspotProvisioner::TRUNK, HotspotProvisioner::LAN_BRIDGE];
         if (count(array_unique($names)) !== count($names) || array_intersect($names, $reserved)) {
             throw ValidationException::withMessages(['vlans' => 'Each VLAN interface needs its own name, different from the port and bridge names.']);

@@ -59,6 +59,7 @@
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 "Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+    [hidden]{display:none !important} /* beats .field, .row and other display rules */
     .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
     a{color:var(--signal)}
     :focus-visible{outline:3px solid var(--focus);outline-offset:2px}

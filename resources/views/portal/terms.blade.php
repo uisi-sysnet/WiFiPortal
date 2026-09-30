@@ -8,7 +8,7 @@
 </head>
 <body>
 <main>
-  <p><a href="{{ route('portal.show', ['router' => $router->portal_code]) }}">Back to login</a></p>
+  <p><a href="{{ route('portal.show', ['network' => $network->portal_code]) }}">Back to login</a></p>
   <h1>Terms and Conditions</h1>
   {!! $page->termsHtml() !!}
 </main>

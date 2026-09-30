@@ -6,7 +6,7 @@
 <div class="page-head">
   <div>
     <h1>Routers</h1>
-    <p class="lede">Each MikroTik runs a hotspot on its own subnet. Users sign in once through RADIUS and can roam to any site.</p>
+    <p class="lede">Each MikroTik runs one or more hotspot networks, each on its own subnet. Users sign in once through RADIUS and can roam to any site.</p>
   </div>
   <a class="btn" href="{{ route('routers.create') }}">Add router</a>
 </div>
@@ -23,7 +23,7 @@
   <p>
     <span class="mono">{{ $plan['supernet'] }}</span> split into /{{ $plan['site_prefix'] }} blocks.
     <strong>{{ number_format(count($used)) }} of {{ number_format($plan['blocks']) }}</strong> blocks in use.
-    Each router serves up to {{ number_format($plan['hosts_per_block']) }} devices, so the full plan holds
+    Each hotspot network serves up to {{ number_format($plan['hosts_per_block']) }} devices, so the full plan holds
     {{ number_format($plan['total_hosts']) }} addresses.
   </p>
   <div class="plan-grid" role="img" aria-label="{{ count($used) }} of {{ $plan['blocks'] }} address blocks used">
@@ -31,7 +31,7 @@
       <span @class(['used' => isset($used[$i]), 'next' => $i === $nextFree])></span>
     @endfor
   </div>
-  <div class="legend"><span><i class="used"></i>In use</span><span><i class="next"></i>Next router</span><span><i></i>Free</span></div>
+  <div class="legend"><span><i class="used"></i>In use</span><span><i class="next"></i>Next network</span><span><i></i>Free</span></div>
 </section>
 
 @if ($routers->isEmpty())
@@ -44,14 +44,14 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Router</th><th>Status</th><th>Client subnet</th><th>API address</th><th>Model</th><th>Configured</th></tr>
+        <tr><th>Router</th><th>Status</th><th>Hotspot networks</th><th>API address</th><th>Model</th><th>Configured</th></tr>
       </thead>
       <tbody>
       @foreach ($routers as $router)
         <tr>
           <td><a href="{{ route('routers.show', $router) }}">{{ $router->name }}</a>@if($router->location)<small>{{ $router->location }}</small>@endif</td>
           <td><span class="status {{ $router->status }}">{{ $router->statusLabel() }}</span></td>
-          <td class="mono">{{ $router->subnet }}</td>
+          <td>@foreach ($router->hotspotNetworks as $n)<span class="mono">{{ $n->subnet }}</span> <small style="display:inline">{{ $n->name }}</small>@if(! $loop->last)<br>@endif @endforeach</td>
           <td class="mono">{{ $router->host }}:{{ $router->api_port }}</td>
           <td>{{ $router->board_name ?? 'Unknown' }}<small>{{ $router->ros_version ? 'RouterOS '.$router->ros_version : '' }}</small></td>
           <td>{{ $router->provisioned_at?->diffForHumans() ?? 'Not yet' }}</td>

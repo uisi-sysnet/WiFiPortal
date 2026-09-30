@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\HotspotGuest;
-use App\Models\MikrotikRouter;
+use App\Models\HotspotNetwork;
 use App\Models\PortalMedia;
 use App\Models\SplashPage;
 use App\Rules\MobileOrEmail;
@@ -16,8 +16,9 @@ use Illuminate\Support\Facades\RateLimiter;
 use Throwable;
 
 /**
- * Public captive portal:
+ * Public captive portal, one per hotspot network (/portal/{portal_code}):
  *   1. Router's login.html sends the phone here (mac, ip, link-login-only...).
+ *      The network decides which design supplies the login page and the ad page.
  *   2. Login page: the user enters their details and accepts the Terms.
  *   3. Details are saved; the phone goes to the advertisement page.
  *   4. User taps Connect; the server logs the phone in on the router through
@@ -26,25 +27,26 @@ use Throwable;
  */
 class PortalController extends Controller
 {
-    public function show(Request $request, MikrotikRouter $router)
+    public function show(Request $request, HotspotNetwork $network)
     {
         if ($request->hasAny(['mac', 'link-login-only', 'error'])) {
-            $request->session()->put($this->key($router), $this->context($request, $router));
+            $request->session()->put($this->key($network), $this->context($request, $network));
 
             // Clean URL, so a refresh doesn't resubmit the router's parameters.
-            return redirect()->route('portal.show', ['router' => $router->portal_code]);
+            return redirect()->route('portal.show', ['network' => $network->portal_code]);
         }
 
-        return $this->render($router, SplashPage::current(), preview: false);
+        return $this->render($network, $network->loginDesign(), preview: false);
     }
 
-    public function login(Request $request, MikrotikRouter $router, GuestCredentials $credentials)
+    public function login(Request $request, HotspotNetwork $network, GuestCredentials $credentials)
     {
-        $ctx = $request->session()->get($this->key($router), []);
-        $page = SplashPage::current();
+        $ctx = $request->session()->get($this->key($network), []);
+        $page = $network->loginDesign();
+        $router = $network->router;
 
         // Per device, not per IP: every phone behind a router shares one public IP.
-        $limitKey = 'portal:'.$router->id.':'.($ctx['mac'] ?? $request->session()->getId());
+        $limitKey = 'portal:'.$network->id.':'.($ctx['mac'] ?? $request->session()->getId());
         if (RateLimiter::tooManyAttempts($limitKey, 8)) {
             return back()->withInput()->withErrors(['form' => 'Too many attempts. Please wait a minute and try again.']);
         }
@@ -88,6 +90,7 @@ class PortalController extends Controller
 
         $guest = HotspotGuest::create([
             'mikrotik_router_id' => $router->id,
+            'hotspot_network_id' => $network->id,
             'resident' => $resident,
             'name' => $resident ? null : PersonName::clean($data['name']),
             'contact' => $contact,
@@ -103,43 +106,44 @@ class PortalController extends Controller
         RateLimiter::clear($limitKey);
 
         // Credentials wait in the session (encrypted) until the user taps Connect.
-        $request->session()->put($this->key($router).'.pending', [
+        $request->session()->put($this->key($network).'.pending', [
             'guest_id' => $guest->id,
             'username' => $username,
             'password' => Crypt::encryptString($password),
             'at' => now()->getTimestamp(),
         ]);
 
-        return redirect()->route('portal.welcome', ['router' => $router->portal_code]);
+        return redirect()->route('portal.welcome', ['network' => $network->portal_code]);
     }
 
     /** Advertisement page with the Connect button. Only after the details are saved. */
-    public function welcome(Request $request, MikrotikRouter $router)
+    public function welcome(Request $request, HotspotNetwork $network)
     {
-        $pending = $request->session()->get($this->key($router).'.pending');
+        $pending = $request->session()->get($this->key($network).'.pending');
         if (! $pending) {
-            return redirect()->route('portal.show', ['router' => $router->portal_code]);
+            return redirect()->route('portal.show', ['network' => $network->portal_code]);
         }
 
-        $page = SplashPage::current();
+        $page = $network->adDesign();
         $wait = max(0, $page->ad_min_seconds - (now()->getTimestamp() - $pending['at']));
 
-        return self::renderAd($router, $page, preview: false, wait: $wait);
+        return self::renderAd($network, $page, preview: false, wait: $wait);
     }
 
     /** The Connect button: log the phone in on the router, then open the page after login. */
-    public function connect(Request $request, MikrotikRouter $router, HotspotProvisioner $routerApi)
+    public function connect(Request $request, HotspotNetwork $network, HotspotProvisioner $routerApi)
     {
-        $key = $this->key($router);
+        $key = $this->key($network);
         $ctx = $request->session()->get($key, []);
         $pending = $ctx['pending'] ?? null;
         if (! $pending) {
-            return redirect()->route('portal.show', ['router' => $router->portal_code]);
+            return redirect()->route('portal.show', ['network' => $network->portal_code]);
         }
 
-        $page = SplashPage::current();
+        $page = $network->adDesign();
+        $router = $network->router;
         if (now()->getTimestamp() - $pending['at'] < $page->ad_min_seconds) {
-            return redirect()->route('portal.welcome', ['router' => $router->portal_code]);
+            return redirect()->route('portal.welcome', ['network' => $network->portal_code]);
         }
 
         $password = Crypt::decryptString($pending['password']);
@@ -155,7 +159,7 @@ class PortalController extends Controller
 
                 return $destination
                     ? redirect()->away($destination)
-                    : view('portal.connected', ['page' => $page, 'router' => $router]);
+                    : view('portal.connected', ['page' => $page, 'router' => $router, 'network' => $network]);
             } catch (Throwable $e) {
                 report($e); // fall through to the browser login below
             }
@@ -163,7 +167,7 @@ class PortalController extends Controller
 
         // Fallback: the phone logs itself in on the router (same credentials, PAP).
         if (empty($ctx['link_login_only'])) {
-            return redirect()->route('portal.welcome', ['router' => $router->portal_code])
+            return redirect()->route('portal.welcome', ['network' => $network->portal_code])
                 ->withErrors(['connect' => 'We could not reach the WiFi router. Please try again in a moment.']);
         }
 
@@ -182,16 +186,17 @@ class PortalController extends Controller
     }
 
     /** Renders the advertisement HTML with the Connect button at [[connect]]. Also used by the editor preview. */
-    public static function renderAd(MikrotikRouter $router, SplashPage $page, bool $preview, int $wait = 0)
+    public static function renderAd(HotspotNetwork $network, SplashPage $page, bool $preview, int $wait = 0)
     {
         $wait = $preview ? (int) $page->ad_min_seconds : $wait;
 
         $button = view('portal.connect', [
-            'router' => $router,
+            'router' => $network->router,
+            'network' => $network,
             'page' => $page,
             'preview' => $preview,
             'wait' => $wait,
-            'action' => $preview ? '#' : route('portal.connect', ['router' => $router->portal_code]),
+            'action' => $preview ? '#' : route('portal.connect', ['network' => $network->portal_code]),
         ])->render();
 
         // [[media:ID]] -> optimized <img> or <video>. Only the first photo loads eagerly.
@@ -213,68 +218,84 @@ class PortalController extends Controller
 
         $html = strtr($withMedia, [
             '[[connect]]' => $button,
-            '[[site_name]]' => e($page->site_name),
-            '[[router_name]]' => e($router->name),
-            '[[location]]' => e((string) $router->location),
+            ...self::placeholders($network, $page),
         ]);
 
         return response($html)->header('Cache-Control', 'no-store');
     }
 
-    public function terms(MikrotikRouter $router)
+    public function terms(HotspotNetwork $network)
     {
-        $page = SplashPage::current();
-
-        return view('portal.terms', ['page' => $page, 'router' => $router]);
+        return view('portal.terms', ['page' => $network->loginDesign(), 'router' => $network->router, 'network' => $network]);
     }
 
-    /** The login.html the router downloads. Replaces the router's own login page. */
-    public function routerLoginFile(MikrotikRouter $router)
+    /**
+     * The login.html the router downloads. One file serves every hotspot network
+     * on that router: it maps the hotspot server name to the network's target.
+     */
+    public function routerLoginFile(HotspotNetwork $network)
     {
-        abort_unless($router->usesExternalLogin(), 404);
+        $networks = $network->router->hotspotNetworks;
+        abort_unless($networks->contains(fn (HotspotNetwork $n) => $n->usesExternalLogin()), 404);
+
+        $targets = $networks->mapWithKeys(fn (HotspotNetwork $n) => [$n->serverName() => $n->loginTarget()])->all();
 
         return response()
-            ->view('portal.router-login', ['target' => $router->loginTarget()])
+            ->view('portal.router-login', [
+                'targets' => $targets,
+                'fallback' => $networks->first(fn (HotspotNetwork $n) => $n->usesExternalLogin())->loginTarget(),
+                'plain' => in_array(null, $targets, true),
+            ])
             ->header('Content-Type', 'text/html; charset=utf-8');
     }
 
     /** Renders the admin's HTML with the form injected. Also used for the editor preview. */
-    public static function render(MikrotikRouter $router, SplashPage $page, bool $preview)
+    public static function render(HotspotNetwork $network, SplashPage $page, bool $preview)
     {
-        $ctx = $preview ? [] : session('portal.'.$router->portal_code, []);
+        $ctx = $preview ? [] : session('portal.'.$network->portal_code, []);
 
         $form = view('portal.form', [
-            'router' => $router,
+            'router' => $network->router,
+            'network' => $network,
             'page' => $page,
             'preview' => $preview,
             'routerError' => $ctx['error'] ?? null,
-            'action' => $preview ? '#' : route('portal.login', ['router' => $router->portal_code]),
+            'action' => $preview ? '#' : route('portal.login', ['network' => $network->portal_code]),
         ])->render();
 
         $html = strtr($page->html, [
             '[[form]]' => $form,
-            '[[site_name]]' => e($page->site_name),
-            '[[router_name]]' => e($router->name),
-            '[[location]]' => e((string) $router->location),
+            ...self::placeholders($network, $page),
         ]);
 
         return response($html)->header('Cache-Control', 'no-store');
     }
 
-    private function key(MikrotikRouter $router): string
+    /** Values for the placeholders both pages share. */
+    private static function placeholders(HotspotNetwork $network, SplashPage $page): array
     {
-        return 'portal.'.$router->portal_code;
+        return [
+            '[[site_name]]' => e($page->site_name),
+            '[[network_name]]' => e((string) $network->name),
+            '[[router_name]]' => e((string) $network->router?->name),
+            '[[location]]' => e((string) $network->router?->location),
+        ];
     }
 
-    /** Keeps only well-formed router parameters; the login link must point at this router. */
-    private function context(Request $request, MikrotikRouter $router): array
+    private function key(HotspotNetwork $network): string
+    {
+        return 'portal.'.$network->portal_code;
+    }
+
+    /** Keeps only well-formed router parameters; the login link must point at this network's gateway. */
+    private function context(Request $request, HotspotNetwork $network): array
     {
         $mac = strtoupper((string) $request->query('mac'));
         $ip = (string) $request->query('ip');
         $login = (string) $request->query('link-login-only');
         $loginHost = parse_url($login, PHP_URL_HOST);
         $scheme = parse_url($login, PHP_URL_SCHEME);
-        $allowedHosts = array_filter([$router->gateway, config('hotspot.dns_name')]);
+        $allowedHosts = array_filter([$network->gateway, config('hotspot.dns_name')]);
 
         return [
             'mac' => preg_match('/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/', $mac) ? $mac : null,

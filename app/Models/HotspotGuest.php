@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class HotspotGuest extends Model
 {
     protected $fillable = [
-        'mikrotik_router_id', 'resident', 'name', 'contact', 'contact_type',
+        'mikrotik_router_id', 'hotspot_network_id', 'resident', 'name', 'contact', 'contact_type',
         'citizen_number', 'mac', 'ip', 'username', 'terms_hash',
         'connected_at', 'login_method', 'expires_at', 'revoked_at',
     ];
@@ -21,5 +21,10 @@ class HotspotGuest extends Model
     public function router(): BelongsTo
     {
         return $this->belongsTo(MikrotikRouter::class, 'mikrotik_router_id');
+    }
+
+    public function network(): BelongsTo
+    {
+        return $this->belongsTo(HotspotNetwork::class, 'hotspot_network_id');
     }
 }

@@ -10,14 +10,15 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SplashPageController;
 use Illuminate\Support\Facades\Route;
 
-// Public captive portal (reached by phones through the hotspot)
-Route::get('/portal/{router:portal_code}', [PortalController::class, 'show'])->name('portal.show');
-Route::post('/portal/{router:portal_code}', [PortalController::class, 'login'])->name('portal.login');
-Route::get('/portal/{router:portal_code}/terms', [PortalController::class, 'terms'])->name('portal.terms');
-Route::get('/portal/{router:portal_code}/welcome', [PortalController::class, 'welcome'])->name('portal.welcome');
+// Public captive portal, one per hotspot network (reached by phones through the hotspot)
+Route::get('/portal/{network:portal_code}', [PortalController::class, 'show'])->name('portal.show');
+Route::post('/portal/{network:portal_code}', [PortalController::class, 'login'])->name('portal.login');
+Route::get('/portal/{network:portal_code}/terms', [PortalController::class, 'terms'])->name('portal.terms');
+Route::get('/portal/{network:portal_code}/welcome', [PortalController::class, 'welcome'])->name('portal.welcome');
 // No per-IP limit: every phone behind a router shares one public IP. The session guards it.
-Route::post('/portal/{router:portal_code}/connect', [PortalController::class, 'connect'])->name('portal.connect');
-Route::get('/hotspot-files/{router:portal_code}/login.html', [PortalController::class, 'routerLoginFile'])
+Route::post('/portal/{network:portal_code}/connect', [PortalController::class, 'connect'])->name('portal.connect');
+// The router's login.html (one per router; any of its networks' codes works)
+Route::get('/hotspot-files/{network:portal_code}/login.html', [PortalController::class, 'routerLoginFile'])
     ->name('portal.router-file');
 
 Route::middleware('guest')->group(function () {
@@ -64,15 +65,25 @@ Route::middleware('auth')->group(function () {
     Route::resource('routers', RouterController::class)
         ->only(['index', 'create', 'store', 'show', 'destroy']);
 
-    Route::get('/splash', [SplashPageController::class, 'edit'])->name('splash.edit');
-    Route::put('/splash', [SplashPageController::class, 'update'])->name('splash.update');
+    // Captive portal designs. /splash opens the default one.
+    Route::get('/splash', [SplashPageController::class, 'index'])->name('splash.edit');
+    Route::post('/splash', [SplashPageController::class, 'store'])->name('splash.store');
+    Route::get('/splash/{page}', [SplashPageController::class, 'edit'])->whereNumber('page')->name('splash.design');
+    Route::put('/splash/{page}', [SplashPageController::class, 'update'])->whereNumber('page')->name('splash.update');
+    Route::delete('/splash/{page}', [SplashPageController::class, 'destroy'])->whereNumber('page')->name('splash.destroy');
     // PUT too: the editor form spoofs PUT, and Preview reuses that form.
-    Route::match(['post', 'put'], '/splash/preview', [SplashPageController::class, 'preview'])->name('splash.preview');
-    Route::post('/splash/reset-template', [SplashPageController::class, 'resetTemplate'])->name('splash.reset');
+    Route::match(['post', 'put'], '/splash/{page}/preview', [SplashPageController::class, 'preview'])
+        ->whereNumber('page')->name('splash.preview');
+    Route::post('/splash/{page}/reset-template', [SplashPageController::class, 'resetTemplate'])
+        ->whereNumber('page')->name('splash.reset');
     Route::post('/splash/media', [PortalMediaController::class, 'store'])->name('splash.media.store');
     Route::get('/splash/media/{media}', [PortalMediaController::class, 'show'])->name('splash.media.show');
     Route::delete('/splash/media/{media}', [PortalMediaController::class, 'destroy'])->name('splash.media.destroy');
 
     Route::post('/routers/{router}/provision', [RouterController::class, 'provision'])
         ->name('routers.provision');
+    Route::post('/routers/{router}/networks', [RouterController::class, 'addNetwork'])
+        ->name('routers.networks.store');
+    Route::put('/networks/{network}', [RouterController::class, 'updateNetwork'])
+        ->name('networks.update');
 });

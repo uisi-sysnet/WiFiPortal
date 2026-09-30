@@ -2,59 +2,122 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
 use App\Models\PortalMedia;
 use App\Models\SplashPage;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
+/**
+ * Captive portal designs. Each design has a login page and an advertisement
+ * page; each hotspot network picks one design for each (see HotspotNetwork).
+ */
 class SplashPageController extends Controller
 {
-    public function edit()
+    /** The menu link opens the default design. */
+    public function index()
     {
+        return redirect()->route('splash.design', SplashPage::current());
+    }
+
+    public function edit(SplashPage $page)
+    {
+        SplashPage::current(); // makes sure a default design exists
+
         return view('splash.edit', [
-            'page' => SplashPage::current(),
-            'portalRouters' => MikrotikRouter::query()->where('login_mode', 'portal')->orderBy('name')->get(),
+            'page' => $page,
+            'designs' => SplashPage::query()->orderBy('id')->get(['id', 'name']),
+            'loginNetworks' => $this->networksUsing($page, 'login_page_id'),
+            'adNetworks' => $this->networksUsing($page, 'ad_page_id'),
             'media' => PortalMedia::query()->latest()->get()->map->toEditor()->values(),
             'mediaConfig' => config('hotspot.media') + ['ffmpeg_ready' => (bool) config('hotspot.media.ffmpeg')],
         ]);
     }
 
-    public function update(Request $request)
+    /** New design: a copy of an existing one, or the default templates. */
+    public function store(Request $request)
     {
-        $page = SplashPage::current();
-        $page->update($this->validated($request));
+        $data = $request->validate([
+            'design_name' => ['required', 'string', 'max:80', Rule::unique('splash_pages', 'name')],
+            'from' => ['nullable', 'integer', Rule::exists('splash_pages', 'id')],
+        ], [], ['design_name' => 'design name']);
+        $data['name'] = $data['design_name'];
 
-        return redirect()->route('splash.edit')->with('status', 'Captive portal saved. Phones see the new version on their next visit.');
+        $source = isset($data['from']) ? SplashPage::find($data['from']) : null;
+        $page = $source
+            ? tap($source->replicate()->fill(['name' => $data['name']]))->save()
+            : SplashPage::create(['name' => $data['name']] + SplashPage::defaults());
+
+        return redirect()->route('splash.design', $page)
+            ->with('status', "Design \"{$page->name}\" created. Choose it for a hotspot network on the router's page.");
+    }
+
+    public function update(Request $request, SplashPage $page)
+    {
+        $page->update($this->validated($request, $page));
+
+        return redirect()->route('splash.design', $page)->with('status', 'Design saved. Phones see the new version on their next visit.');
+    }
+
+    public function destroy(SplashPage $page)
+    {
+        if ($page->isDefault()) {
+            return back()->withErrors(['design' => 'The first design is the default and cannot be deleted.']);
+        }
+        $users = $this->networksUsing($page, 'login_page_id')->merge($this->networksUsing($page, 'ad_page_id'))->unique('id');
+        if ($users->isNotEmpty()) {
+            return back()->withErrors(['design' => 'Still used by '.$users->map(fn ($n) => $n->router->name.' / '.$n->name)->implode(', ')
+                .'. Choose another design for those networks first.']);
+        }
+
+        $name = $page->name;
+        $page->delete();
+
+        return redirect()->route('splash.edit')->with('status', "Design \"{$name}\" deleted.");
     }
 
     /** Preview the editor's current (unsaved) content in a new tab. */
-    public function preview(Request $request)
+    public function preview(Request $request, SplashPage $page)
     {
-        $page = SplashPage::current()->replicate()->fill($this->validated($request));
+        $page = $page->replicate()->fill($this->validated($request, $page));
         $router = new MikrotikRouter(['name' => 'Sample router', 'location' => 'Sample location']);
-        $router->portal_code = 'preview';
+        $network = new HotspotNetwork(['name' => 'Sample network']);
+        $network->portal_code = 'preview';
+        $network->setRelation('router', $router);
 
         return $request->input('preview_page') === 'ad'
-            ? PortalController::renderAd($router, $page, preview: true)
-            : PortalController::render($router, $page, preview: true);
+            ? PortalController::renderAd($network, $page, preview: true)
+            : PortalController::render($network, $page, preview: true);
     }
 
-    public function resetTemplate(Request $request)
+    public function resetTemplate(Request $request, SplashPage $page)
     {
         if ($request->input('which') === 'ad') {
-            SplashPage::current()->update(['ad_html' => SplashPage::defaultAdHtml()]);
+            $page->update(['ad_html' => SplashPage::defaultAdHtml()]);
 
-            return redirect()->route('splash.edit')->with('status', 'Advertisement page reset to the default template.');
+            return redirect()->route('splash.design', $page)->with('status', 'Advertisement page reset to the default template.');
         }
 
-        SplashPage::current()->update(['html' => SplashPage::defaultHtml()]);
+        $page->update(['html' => SplashPage::defaultHtml()]);
 
-        return redirect()->route('splash.edit')->with('status', 'Login page reset to the default template. Terms and form settings were kept.');
+        return redirect()->route('splash.design', $page)->with('status', 'Login page reset to the default template. Terms and form settings were kept.');
     }
 
-    private function validated(Request $request): array
+    private function networksUsing(SplashPage $page, string $column)
+    {
+        $query = HotspotNetwork::query()->with('router:id,name')->orderBy('mikrotik_router_id')->orderBy('id');
+
+        // Networks without a choice use the default design.
+        return $page->isDefault()
+            ? $query->where(fn ($q) => $q->where($column, $page->id)->orWhereNull($column))->get()
+            : $query->where($column, $page->id)->get();
+    }
+
+    private function validated(Request $request, SplashPage $page): array
     {
         return $request->validate([
+            'name' => ['required', 'string', 'max:80', Rule::unique('splash_pages', 'name')->ignore($page->id)],
             'site_name' => ['required', 'string', 'max:80'],
             'html' => ['required', 'string', 'max:200000', function ($attr, $value, $fail) {
                 if (! str_contains($value, '[[form]]')) {
@@ -80,6 +143,7 @@ class SplashPageController extends Controller
             'ad_button_label' => ['required', 'string', 'max:40'],
             'ad_min_seconds' => ['required', 'integer', 'between:0,120'],
         ], [], [
+            'name' => 'design name',
             'html' => 'login page HTML',
             'ad_html' => 'advertisement page HTML',
             'ad_button_label' => 'button label',

@@ -83,7 +83,7 @@
   <noscript>
     <label style="display:flex;gap:10px;font-weight:400">
       <input type="checkbox" name="accept" value="1">
-      <span>I accept the <a href="{{ $preview ? '#' : route('portal.terms', ['router' => $router->portal_code]) }}">Terms and Conditions</a></span>
+      <span>I accept the <a href="{{ $preview ? '#' : route('portal.terms', ['network' => $network->portal_code]) }}">Terms and Conditions</a></span>
     </label>
   </noscript>
 </form>

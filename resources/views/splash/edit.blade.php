@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Splash page | Public WiFi Control')
+@section('title', $page->name.' | Captive portal | Public WiFi Control')
 @section('body-class', 'wide')
 
 @push('head')
@@ -60,6 +60,19 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
 .media-grid .acts button.del{flex:0 0 auto;color:var(--fail)}
 .media-grid .acts button:disabled{opacity:.45;cursor:not-allowed}
 
+/* Design switcher */
+.designs{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:14px 16px;margin-bottom:22px}
+.designs-row{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center}
+.designs-row > label{font-weight:600}
+.designs-row select{font:inherit;min-width:220px;padding:7px 10px;border:1px solid #A7B4AD;border-radius:4px;background:#fff}
+.new-design{position:relative}
+.new-design summary{list-style:none}
+.new-design summary::-webkit-details-marker{display:none}
+.new-design form{position:absolute;z-index:20;top:calc(100% + 6px);left:0;width:300px;display:grid;gap:10px;padding:14px;background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px rgba(22,36,46,.16)}
+.new-design input[type=text]{padding:8px 10px}
+.used-by{margin:10px 0 0;display:grid;gap:4px;font-size:.88rem;color:var(--ink-2)}
+.used-by b{color:var(--ink);font-weight:600}
+
 /* Load budget before Connect */
 .budget{display:flex;align-items:center;gap:12px;margin-top:12px;padding:10px 12px;border-radius:6px;background:#F5F7F6;border:1px solid var(--line);font-size:.88rem}
 .budget .meter{flex:0 0 120px;height:8px;border-radius:4px;background:#E3E8E5;overflow:hidden}
@@ -79,18 +92,66 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
 <div class="page-head">
   <div>
     <h1>Captive portal</h1>
-    <p class="lede">The two pages phones see before they get internet: the login page, where people enter their details, then the advertisement page with the Connect button. Edit on the left, see it on the right as you type.</p>
+    <p class="lede">The two pages phones see before they get internet: the login page, where people enter their details, then the advertisement page with the Connect button. Keep several designs and choose, per hotspot network, which one shows each page. Edit on the left, see it on the right as you type.</p>
   </div>
 </div>
 
 @if (session('status'))<div class="notice" role="status">{{ session('status') }}</div>@endif
-@if ($errors->any())<div class="alert" role="alert">Fix the highlighted fields. Nothing was saved.</div>@endif
+@error('design')<div class="alert" role="alert">{{ $message }}</div>@enderror
+@if ($errors->any() && ! $errors->hasAny(['design', 'design_name']))<div class="alert" role="alert">Fix the highlighted fields. Nothing was saved.</div>@endif
+
+@php
+  $networkList = fn ($list) => $list->map(fn ($n) => $n->router->name.' / '.$n->name)->implode(', ');
+@endphp
+<section class="designs" aria-label="Designs">
+  <div class="designs-row">
+    <label for="design-pick">Design</label>
+    <select id="design-pick">
+      @foreach ($designs as $d)
+        <option value="{{ route('splash.design', $d) }}" @selected($d->id === $page->id)>{{ $d->name }}{{ $loop->first ? ' (default)' : '' }}</option>
+      @endforeach
+    </select>
+    <details class="new-design" @error('design_name') open @enderror>
+      <summary class="btn quiet sm">New design</summary>
+      <form method="POST" action="{{ route('splash.store') }}">
+        @csrf
+        <label for="new-design-name" style="font-weight:600">Name</label>
+        <input id="new-design-name" name="design_name" type="text" maxlength="80" required placeholder="e.g. School WiFi" value="{{ old('design_name') }}">
+        @error('design_name')<p class="error">{{ $message }}</p>@enderror
+        <label class="check"><input type="checkbox" name="from" value="{{ $page->id }}" checked> Start from a copy of {{ $page->name }}</label>
+        <button class="btn sm" type="submit">Create design</button>
+      </form>
+    </details>
+    @unless ($page->isDefault())
+      <form method="POST" action="{{ route('splash.destroy', $page) }}" onsubmit="return confirm('Delete the design {{ addslashes($page->name) }}?')">
+        @csrf @method('DELETE')
+        <button class="btn danger sm" type="submit">Delete design</button>
+      </form>
+    @endunless
+  </div>
+  <div class="used-by">
+    <span><b>Login page</b> shown on: {{ $loginNetworks->isEmpty() ? 'no network yet' : $networkList($loginNetworks) }}</span>
+    <span><b>Advertisement page</b> shown on: {{ $adNetworks->isEmpty() ? 'no network yet' : $networkList($adNetworks) }}</span>
+    <span class="hint">Choose which design each network uses on its router's page.@if ($page->isDefault()) Networks that haven't chosen use this default design.@endif</span>
+  </div>
+</section>
 
 <div class="studio">
   {{-- ---------- Editor ---------- --}}
   <div>
-    <form method="POST" action="{{ route('splash.update') }}" id="splash-form" novalidate>
+    <form method="POST" action="{{ route('splash.update', $page) }}" id="splash-form" novalidate>
       @csrf @method('PUT')
+
+      <fieldset>
+        <legend>Design</legend>
+        <div class="field">
+          <label for="design_name">Design name</label>
+          <input id="design_name" name="name" type="text" maxlength="80" value="{{ old('name', $page->name) }}" required
+                 @error('name') aria-invalid="true" @enderror>
+          <p class="hint">Only admins see this, when choosing a design for a hotspot network.</p>
+          @error('name')<p class="error">{{ $message }}</p>@enderror
+        </div>
+      </fieldset>
 
       <fieldset>
         <legend>Login page</legend>
@@ -215,19 +276,19 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
       </fieldset>
 
       <div class="sticky-actions">
-        <button class="btn" type="submit" id="save-btn">Save splash page</button>
+        <button class="btn" type="submit" id="save-btn">Save design</button>
         <input type="hidden" name="preview_page" id="preview-page-field" value="login">
-        <button class="btn quiet" type="submit" formaction="{{ route('splash.preview') }}" formtarget="_blank">Open preview in new tab</button>
+        <button class="btn quiet" type="submit" formaction="{{ route('splash.preview', $page) }}" formtarget="_blank">Open preview in new tab</button>
         <span id="dirty" hidden>Unsaved changes</span>
       </div>
     </form>
 
     <div class="actions" style="flex-wrap:wrap">
-      <form method="POST" action="{{ route('splash.reset') }}" onsubmit="return confirm('Replace the login page HTML with the default template? Terms and form settings stay as they are.')">
+      <form method="POST" action="{{ route('splash.reset', $page) }}" onsubmit="return confirm('Replace the login page HTML with the default template? Terms and form settings stay as they are.')">
         @csrf
         <button class="btn danger" type="submit">Reset login page HTML</button>
       </form>
-      <form method="POST" action="{{ route('splash.reset') }}" onsubmit="return confirm('Replace the advertisement page HTML with the default template?')">
+      <form method="POST" action="{{ route('splash.reset', $page) }}" onsubmit="return confirm('Replace the advertisement page HTML with the default template?')">
         @csrf
         <input type="hidden" name="which" value="ad">
         <button class="btn danger" type="submit">Reset advertisement page HTML</button>
@@ -270,7 +331,10 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
   const $ = (id) => document.getElementById(id);
   const form = $('splash-form'), frame = $('preview-frame'), stage = $('stage'), wrap = $('frame-wrap');
   const statusEl = $('preview-status'), scaleEl = $('scale-label'), termsBtn = $('terms-toggle'), dirtyEl = $('dirty');
-  const previewUrl = @json(route('splash.preview'));
+  const previewUrl = @json(route('splash.preview', $page));
+
+  // Switching design leaves the page (the unsaved-changes warning still applies).
+  $('design-pick').addEventListener('change', (e) => { location.href = e.target.value; });
   const DEVICES = { phone: 390, tablet: 768, desktop: 1280 };
   const state = { device: 'phone', resident: false, terms: false, scroll: 0, page: 'login' };
   let timer = null, seq = 0, controller = null, dirty = false;
