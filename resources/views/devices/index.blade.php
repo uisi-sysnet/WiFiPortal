@@ -572,6 +572,20 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
             <noscript><button class="btn control quiet" type="submit">Show</button></noscript>
           </form>
 
+          {{-- NEW: Export to Excel --}}
+          <a class="btn control quiet"
+            href="{{ route($info['route'].'.export', array_filter(['barangay' => $filter])) }}"
+            title="Download this list as an Excel file">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                style="margin-right:6px">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Export to Excel
+          </a>
+
           <a class="btn control primary" href="{{ route($info['route'].'.index', ['add' => 1]) }}" data-open-add>
             + Add {{ strtolower($info['label']) }}
           </a>
@@ -604,7 +618,7 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                 <th scope="col" class="num">No.</th>
                 <th scope="col">Device name</th>
                 <th scope="col">Status</th>
-                <th scope="col">Brand and model</th>
+                <th scope="col">Device model</th>
                 <th scope="col">IP address</th>
                 <th scope="col">MAC address</th>
                 <th scope="col">Serial number</th>
@@ -633,7 +647,7 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                     {{ $d->statusLabel() }}
                   </span>
                 </td>
-                <td data-label="Brand and model">{!! ($d->brand || $d->model) ? e(trim($d->brand.' '.$d->model)) : $dash !!}</td>
+                <td data-label="Device model">{!! $d->model ? e($d->model) : $dash !!}</td>
                 <td class="mono" data-label="IP address">{{ $d->host }}@if ($d->snmp_port !== 161):{{ $d->snmp_port }}@endif</td>
                 <td class="mono" data-label="MAC address">{!! $d->mac_address ? e($d->mac_address) : $dash !!}</td>
                 <td class="mono" data-label="Serial number">{!! $d->serial_number ? e($d->serial_number) : $dash !!}</td>
@@ -653,14 +667,37 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                 </td>
                 <td data-label="Actions">
                   <div class="acts">
-                    {{-- EDIT NOW OPENS THE MODAL --}}
+                    {{--
+                      EDIT: button carries every field value via data-* attributes.
+                      data-edit-action gives JS the exact named-route URL (handles
+                      prefixes, groups, and route-model binding keys).
+                    --}}
                     <button type="button"
                             class="btn quiet sm"
                             data-edit-device="{{ $d->id }}"
+                            data-edit-action="{{ route('devices.update', $d) }}"
                             data-edit-name="{{ $d->name }}"
+                            data-edit-model="{{ $d->model }}"
+                            data-edit-firmware="{{ $d->firmware_version }}"
+                            data-edit-mac="{{ $d->mac_address }}"
+                            data-edit-serial="{{ $d->serial_number }}"
+                            data-edit-barangay="{{ $d->barangay_id }}"
+                            data-edit-location="{{ $d->location }}"
+                            data-edit-router="{{ $d->mikrotik_router_id }}"
+                            data-edit-lat="{{ $d->latitude }}"
+                            data-edit-lng="{{ $d->longitude }}"
+                            data-edit-host="{{ $d->host }}"
+                            data-edit-port="{{ $d->snmp_port }}"
+                            data-edit-version="{{ $d->snmp_version }}"
+                            data-edit-v3-user="{{ $d->v3_username }}"
+                            data-edit-v3-level="{{ $d->v3_security_level }}"
+                            data-edit-v3-auth="{{ $d->v3_auth_protocol }}"
+                            data-edit-v3-priv="{{ $d->v3_priv_protocol }}"
                             data-edit-status="{{ $d->status }}"
                             data-edit-status-label="{{ $d->statusLabel() }}"
-                            data-edit-checked="{{ $d->last_checked_at ? $d->last_checked_at->diffForHumans() : '' }}">Edit</button>
+                            data-edit-checked="{{ $d->last_checked_at ? $d->last_checked_at->diffForHumans() : '' }}">
+                      Edit
+                    </button>
 
                     <form method="POST" action="{{ route('devices.destroy', $d) }}" onsubmit="return confirm('Delete {{ $d->name }}? It will no longer be monitored.')">
                       @csrf @method('DELETE')
@@ -742,14 +779,12 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
           <div class="alert" role="alert">Fix the highlighted fields and try again.</div>
         @endif
 
-        <div id="edit-fields-slot">
-          @php
-            $editDevice = $editFailed && old('device_id')
-              ? ($devices->firstWhere('id', (int) old('device_id')) ?? $blank)
-              : $blank;
-          @endphp
-          @include('devices._fields', ['device' => $editDevice, 'editing' => true, 'formId' => 'edit-form'])
-        </div>
+        @php
+          $editDevice = $editFailed && old('device_id')
+            ? ($devices->firstWhere('id', (int) old('device_id')) ?? $blank)
+            : $blank;
+        @endphp
+        @include('devices._fields', ['device' => $editDevice, 'editing' => true, 'formId' => 'edit-form'])
       </div>
 
       <div class="modal-foot">
@@ -772,10 +807,12 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
   (function () {
     /* ---------- ADD modal ---------- */
     const addDialog = document.getElementById('add-device');
+    const addForm   = document.getElementById('add-form');
+
     function openAdd() {
       if (!addDialog || typeof addDialog.showModal !== 'function') return;
       addDialog.showModal();
-      const first = addDialog.querySelector('[aria-invalid="true"]') || document.getElementById('name');
+      const first = addDialog.querySelector('[aria-invalid="true"]') || addForm.elements['name'];
       if (first) first.focus();
     }
     function closeAdd() { if (addDialog) addDialog.close(); }
@@ -805,29 +842,103 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
     const meta       = document.getElementById('edit-status-meta');
     const idField    = editForm ? editForm.querySelector('input[name="device_id"]') : null;
 
+    // Set a field by name (text/select/radio group)
+    function setField(name, value) {
+      if (!editForm) return;
+      const els = editForm.querySelectorAll('[name="' + name + '"]');
+      if (!els.length) return;
+
+      if (els[0].type === 'radio') {
+        els.forEach((r) => { r.checked = (String(r.value) === String(value ?? '')); });
+        return;
+      }
+      els[0].value = (value ?? '');
+    }
+
+    // Dispatch an event so _fields' JS reacts (map, SNMP panels)
+    function fire(el, type) {
+      if (!el) return;
+      el.dispatchEvent(new Event(type, { bubbles: true }));
+    }
+
     function openEdit(btn) {
       if (!editDialog || typeof editDialog.showModal !== 'function') return;
 
-      const id     = btn.dataset.editDevice;
-      const name   = btn.dataset.editName || 'device';
-      const status = btn.dataset.editStatus || 'unknown';
-      const label  = btn.dataset.editStatusLabel || status;
-      const checked = btn.dataset.editChecked || '';
+      const d      = btn.dataset;
+      const id     = d.editDevice;
+      const name   = d.editName || 'device';
+      const status = d.editStatus || 'unknown';
 
-      // Update form action to the correct update route.
-      editForm.action = '{{ url($info['route']) }}/' + id;
+      // IMPORTANT: use the pre-built named-route URL from Blade.
+      // Do NOT string-concat here — that's what caused the 404.
+      if (d.editAction) {
+        editForm.action = d.editAction;
+      } else {
+        // Safety net: only used if data-edit-action is missing.
+        editForm.action = '{{ route("devices.update", ":id") }}'.replace(':id', encodeURIComponent(id));
+      }
       if (idField) idField.value = id;
 
-      // Update header + footer.
+      // Header + footer
       editTitle.textContent = 'Edit ' + name;
       chip.className = 'status-chip ' + status;
-      chip.textContent = label;
-      meta.textContent = checked ? 'Checked ' + checked : '';
+      chip.textContent = d.editStatusLabel || status;
+      meta.textContent = d.editChecked ? 'Checked ' + d.editChecked : '';
 
+      // ---- Populate every field ----
+      setField('name',               d.editName);
+      setField('model',              d.editModel);
+      setField('firmware_version',   d.editFirmware);
+      setField('mac_address',        d.editMac);
+      setField('serial_number',      d.editSerial);
+      setField('barangay_id',        d.editBarangay);
+      setField('location',           d.editLocation);
+      setField('mikrotik_router_id', d.editRouter);
+      setField('latitude',           d.editLat);
+      setField('longitude',          d.editLng);
+      setField('host',               d.editHost);
+      setField('snmp_port',          d.editPort);
+      setField('snmp_version',       d.editVersion);
+      setField('v3_username',        d.editV3User);
+      setField('v3_security_level',  d.editV3Level);
+      setField('v3_auth_protocol',   d.editV3Auth);
+      setField('v3_priv_protocol',   d.editV3Priv);
+
+      // Passwords intentionally blank — server keeps existing when blank
+      setField('community',          '');
+      setField('v3_auth_password',   '');
+      setField('v3_priv_password',   '');
+
+      // Re-sync SNMP version panels
+      const verRadio = editForm.querySelector('input[name="snmp_version"]:checked');
+      fire(verRadio, 'change');
+
+      // Re-sync the map from lat/lng
+      fire(editForm.elements['latitude'],  'input');
+      fire(editForm.elements['longitude'], 'input');
+
+      // Open
       editDialog.showModal();
-      const first = editDialog.querySelector('[aria-invalid="true"]') || document.getElementById('name');
-      if (first) first.focus();
+
+      const first = editDialog.querySelector('[aria-invalid="true"]') || editForm.elements['name'];
+      if (first) first.focus({ preventScroll: true });
+
+      // Nudge Leaflet to recalc size after the dialog becomes visible
+      setTimeout(() => {
+        const mapEl = editForm.querySelector('.map-picker');
+        if (!mapEl) return;
+        if (mapEl._leaflet_map && typeof mapEl._leaflet_map.invalidateSize === 'function') {
+          mapEl._leaflet_map.invalidateSize();
+        } else if (window.L) {
+          for (const k in mapEl) {
+            if (k.indexOf('_leaflet_') === 0 && mapEl[k] && typeof mapEl[k].invalidateSize === 'function') {
+              mapEl[k].invalidateSize();
+            }
+          }
+        }
+      }, 120);
     }
+
     function closeEdit() { if (editDialog) editDialog.close(); }
 
     document.querySelectorAll('[data-edit-device]').forEach((btn) =>
@@ -840,12 +951,12 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
       editDialog.addEventListener('click', (e) => { if (e.target === editDialog) closeEdit(); });
     }
 
-    // If validation failed on an edit, reopen that dialog.
+    // Validation failed on an edit → reopen that device in the modal
     if (@json($editFailed) && editDialog) {
-      const id = @json(old('device_id'));
-      const row = document.querySelector('[data-edit-device="' + id + '"]');
-      if (row) {
-        openEdit(row);
+      const failedId = @json(old('device_id'));
+      const btn = document.querySelector('[data-edit-device="' + failedId + '"]');
+      if (btn) {
+        openEdit(btn);
       } else {
         editDialog.showModal();
       }

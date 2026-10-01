@@ -49,6 +49,7 @@ Route::middleware('auth')->group(function () {
         Route::get("/{$path}", [NetworkDeviceController::class, 'index'])->defaults('type', $type)->name("{$name}.index");
         Route::get("/{$path}/create", [NetworkDeviceController::class, 'create'])->defaults('type', $type)->name("{$name}.create");
         Route::post("/{$path}", [NetworkDeviceController::class, 'store'])->defaults('type', $type)->name("{$name}.store");
+        Route::get("/{$path}/export", [NetworkDeviceController::class, 'export'])->defaults('type', $type)->name("{$name}.export");
     }
     Route::post('/devices/test-snmp', [NetworkDeviceController::class, 'testSnmp'])
         ->middleware('throttle:30,1')->name('devices.test-snmp');

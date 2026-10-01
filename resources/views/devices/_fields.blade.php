@@ -544,9 +544,16 @@
 
 <script>
 (function () {
-  const $ = (id) => document.getElementById(id);
-  const form = $(@json($formId)), msg = $('test-msg'), btn = $('test-snmp');
-  if (!form || !btn) return;
+  const form = document.getElementById(@json($formId));
+  if (!form) return;
+
+  // Scope every lookup to THIS form so the Add and Edit dialogs
+  // (which share field IDs) don't clash.
+  const $ = (id) => form.querySelector('#' + CSS.escape(id));
+
+  const msg = $('test-msg');
+  const btn = $('test-snmp');
+  if (!btn || !msg) return;
 
   /* ---- SNMP version and security level ---- */
   function sync() {
@@ -636,9 +643,11 @@
       suppressMapSync = false;
     });
 
-    // Make sure tiles line up after modal opens (dialog layout changes size).
+    // Expose the map instance so outside code (e.g. the shared edit modal)
+    // can call invalidateSize() after the dialog opens.
+    mapEl._leaflet_map = map;
+
     setTimeout(() => map.invalidateSize(), 80);
-    // Some browsers need a second nudge after transitions.
     setTimeout(() => map.invalidateSize(), 350);
   }
 
