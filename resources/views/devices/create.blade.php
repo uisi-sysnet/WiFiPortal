@@ -5,269 +5,277 @@
 @push('head')
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <style>
-select{font:inherit;width:100%;padding:9px 11px;border:1px solid #A7B4AD;border-radius:4px;background:#fff;color:var(--ink)}
-.choice{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:16px}
-.test-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;margin-bottom:18px}
-#test-msg{margin:0;font-size:.92rem;color:var(--ink-2)}
-#test-msg.ok{color:var(--signal);font-weight:600}
-#test-msg.bad{color:var(--fail)}
-.btn:disabled{opacity:.45;cursor:not-allowed}
+/* ============================================================
+   Add-device modal — green theme, matches devices/edit modal
+   ============================================================ */
+dialog.modal {
+  width: min(960px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ink, #0B1C14);
+  background: #fff;
+  box-shadow: 0 32px 96px rgba(10, 20, 26, .42), 0 2px 6px rgba(10, 20, 26, .08);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(8px) scale(.985);
+  transition: opacity .18s ease, transform .18s ease;
+}
+dialog.modal[open] {
+  display: flex;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+dialog.modal::backdrop {
+  background: rgba(10, 20, 26, .55);
+  backdrop-filter: blur(3px);
+}
+
+/* --- Shell --- */
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  margin: 0;
+}
+
+/* --- Head --- */
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 22px;
+  background: linear-gradient(180deg, #fff 0%, #FBFDFC 100%);
+  border-bottom: 1px solid var(--line, #C8D9D0);
+}
+.modal-head .head-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #0e670d 10%, #fff);
+  color: #0e670d;
+}
+.modal-head .head-text { min-width: 0; flex: 1; }
+.modal-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink, #0B1C14);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.modal-head .head-sub {
+  margin: 2px 0 0;
+  font-size: .78rem;
+  color: var(--ink-2, #5c6b66);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.modal-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-2, #5c6b66);
+  cursor: pointer;
+  transition: background .15s, color .15s, transform .1s;
+}
+.modal-x:hover { background: var(--hover, #F0F3F1); color: var(--ink, #0B1C14); }
+.modal-x:active { transform: scale(.94); }
+
+/* --- Body --- */
+.modal-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 22px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #C8D9D0 transparent;
+}
+.modal-body::-webkit-scrollbar { width: 10px; }
+.modal-body::-webkit-scrollbar-thumb {
+  background: #C8D9D0;
+  border-radius: 999px;
+  border: 3px solid #fff;
+}
+.modal-body::-webkit-scrollbar-thumb:hover { background: #A7B4AD; }
+
+/* --- Info banner at top of body (add-mode) --- */
+.info-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  font-size: .82rem;
+  border: 1px solid color-mix(in srgb, #0e670d 22%, transparent);
+  background: color-mix(in srgb, #0e670d 6%, #fff);
+  color: var(--ink-2, #5c6b66);
+}
+.info-banner .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: .72rem;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: #0e670d;
+}
+.info-banner .chip::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0e670d;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #0e670d 18%, transparent);
+}
+.info-banner .meta {
+  margin-left: auto;
+  font-size: .76rem;
+  color: var(--ink-2, #5c6b66);
+}
+
+/* --- Foot --- */
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px;
+  background: #FBFDFC;
+  border-top: 1px solid var(--line, #C8D9D0);
+}
+.modal-foot .foot-hint {
+  margin-right: auto;
+  font-size: .76rem;
+  color: var(--ink-2, #5c6b66);
+}
+
+/* --- Responsive --- */
+@media (max-width: 640px) {
+  .modal-head, .modal-body, .modal-foot { padding-left: 16px; padding-right: 16px; }
+  .modal-head .head-sub { display: none; }
+  .info-banner { flex-wrap: wrap; }
+  .info-banner .meta { margin-left: 0; width: 100%; }
+  .modal-foot .foot-hint { display: none; }
+}
+
+/* --- Selection color --- */
+dialog.modal ::selection { background: color-mix(in srgb, #0e670d 20%, #fff); }
 </style>
 @endpush
 
 @section('content')
-<div class="page-head">
-  <div>
-    <h1>Add {{ strtolower($info['label']) }}</h1>
-    <p class="lede">The dashboard checks it over SNMP every minute to show whether it is online. Nothing on the device is changed.</p>
-  </div>
-</div>
 
-@if ($errors->any())<div class="alert" role="alert">Fix the highlighted fields and try again.</div>@endif
+<dialog class="modal" id="add-device" aria-labelledby="add-title">
+  <form id="device-form" class="modal-form device-fields" method="POST" action="{{ route($info['route'].'.store') }}" novalidate>
+    @csrf
 
-@php
-  $err = fn ($f) => $errors->has($f) ? 'aria-invalid=true aria-describedby='.$f.'-error' : '';
-  $ver = old('snmp_version', '2c');
-  $level = old('v3_security_level', 'authPriv');
-@endphp
-
-<form id="device-form" method="POST" action="{{ route($info['route'].'.store') }}" class="form-layout" novalidate>
-  @csrf
-  <div>
-    <fieldset>
-      <legend>{{ $info['label'] }}</legend>
-      <div class="field">
-        <label for="name">Name</label>
-        <input id="name" name="name" type="text" maxlength="64" value="{{ old('name') }}" required
-               placeholder="{{ $type === 'ap' ? 'POB-AP-01' : 'POB-SW-01' }}" {!! $err('name') !!}>
-        @error('name')<p class="error" id="name-error">{{ $message }}</p>@enderror
+    {{-- ---------- Header ---------- --}}
+    <div class="modal-head">
+      <div class="head-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
       </div>
-      <div class="row">
-        <div class="field">
-          <label for="barangay_id">Barangay</label>
-          @if ($barangays->isEmpty())
-            <p class="hint">No barangays yet. <a href="{{ route('settings') }}#barangays">Add them in Settings</a>, then come back.</p>
-          @else
-            <select id="barangay_id" name="barangay_id" required {!! $err('barangay_id') !!}>
-              <option value="">Choose barangay</option>
-              @foreach ($barangays as $b)
-                <option value="{{ $b->id }}" @selected(old('barangay_id') == $b->id)>{{ $b->name }}</option>
-              @endforeach
-            </select>
-          @endif
-          @error('barangay_id')<p class="error" id="barangay_id-error">{{ $message }}</p>@enderror
-        </div>
-        <div class="field">
-          <label for="location">Landmark <span class="hint">(optional)</span></label>
-          <input id="location" name="location" type="text" maxlength="255" value="{{ old('location') }}" placeholder="Covered court, pole 3">
-        </div>
+      <div class="head-text">
+        <h2 id="add-title">Add {{ strtolower($info['label']) }}</h2>
+        <p class="head-sub">
+          {{ $info['label'] }} &middot; checked over SNMP every minute
+        </p>
       </div>
-      <div class="field">
-        <label for="mikrotik_router_id">Site router <span class="hint">(optional)</span></label>
-        <select id="mikrotik_router_id" name="mikrotik_router_id">
-          <option value="">None</option>
-          @foreach ($routers as $r)
-            <option value="{{ $r->id }}" @selected(old('mikrotik_router_id') == $r->id)>{{ $r->name }}{{ $r->location ? ', '.$r->location : '' }}</option>
-          @endforeach
-        </select>
-        <p class="hint">The router this {{ strtolower($info['label']) }} sits behind.</p>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Map position</legend>
-      <div class="row">
-        <div class="field">
-          <label for="latitude">Latitude</label>
-          <input id="latitude" name="latitude" type="text" inputmode="decimal" class="mono" value="{{ old('latitude') }}" placeholder="14.4081" required {!! $err('latitude') !!}>
-          @error('latitude')<p class="error" id="latitude-error">{{ $message }}</p>@enderror
-        </div>
-        <div class="field">
-          <label for="longitude">Longitude</label>
-          <input id="longitude" name="longitude" type="text" inputmode="decimal" class="mono" value="{{ old('longitude') }}" placeholder="121.0415" required {!! $err('longitude') !!}>
-          @error('longitude')<p class="error" id="longitude-error">{{ $message }}</p>@enderror
-        </div>
-      </div>
-      <div class="test-row">
-        <button type="button" id="use-location" class="btn quiet">Use my current location</button>
-        <a id="map-check" class="hint" href="#" target="_blank" rel="noopener" hidden>Check on Google Maps</a>
-        <p id="geo-msg" class="hint" aria-live="polite" style="margin:0">Standing at the device? Use your phone's location. Or paste "14.4081, 121.0415" from Google Maps into Latitude.</p>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>SNMP</legend>
-      <div class="row">
-        <div class="field">
-          <label for="host">IP address</label>
-          <input id="host" name="host" type="text" class="mono" value="{{ old('host') }}" required placeholder="172.20.0.11" {!! $err('host') !!}>
-          @error('host')<p class="error" id="host-error">{{ $message }}</p>@enderror
-        </div>
-        <div class="field">
-          <label for="snmp_port">Port</label>
-          <input id="snmp_port" name="snmp_port" type="number" min="1" max="65535" value="{{ old('snmp_port', 161) }}" required {!! $err('snmp_port') !!}>
-          @error('snmp_port')<p class="error" id="snmp_port-error">{{ $message }}</p>@enderror
-        </div>
-      </div>
-
-      <div class="choice" role="radiogroup" aria-label="SNMP version">
-        <label class="check"><input type="radio" name="snmp_version" value="2c" @checked($ver === '2c')> v2c</label>
-        <label class="check"><input type="radio" name="snmp_version" value="3" @checked($ver === '3')> v3 (encrypted)</label>
-        <label class="check"><input type="radio" name="snmp_version" value="1" @checked($ver === '1')> v1</label>
-      </div>
-
-      <div class="field" id="v12" @if($ver === '3') hidden @endif>
-        <label for="community">Community</label>
-        <input id="community" name="community" type="password" autocomplete="off" maxlength="128" {!! $err('community') !!}>
-        <p class="hint">The read-only community set on the device. Stored encrypted.</p>
-        @error('community')<p class="error" id="community-error">{{ $message }}</p>@enderror
-      </div>
-
-      <div id="v3" @if($ver !== '3') hidden @endif>
-        <div class="row">
-          <div class="field">
-            <label for="v3_username">Username</label>
-            <input id="v3_username" name="v3_username" type="text" autocomplete="off" maxlength="64" value="{{ old('v3_username') }}" {!! $err('v3_username') !!}>
-            @error('v3_username')<p class="error" id="v3_username-error">{{ $message }}</p>@enderror
-          </div>
-          <div class="field">
-            <label for="v3_security_level">Security</label>
-            <select id="v3_security_level" name="v3_security_level">
-              <option value="authPriv" @selected($level === 'authPriv')>Authentication and encryption</option>
-              <option value="authNoPriv" @selected($level === 'authNoPriv')>Authentication only</option>
-              <option value="noAuthNoPriv" @selected($level === 'noAuthNoPriv')>None</option>
-            </select>
-          </div>
-        </div>
-        <div class="row" id="v3-auth">
-          <div class="field">
-            <label for="v3_auth_protocol">Authentication</label>
-            <select id="v3_auth_protocol" name="v3_auth_protocol">
-              @foreach (['SHA', 'SHA256', 'SHA512', 'MD5'] as $p)<option @selected(old('v3_auth_protocol', 'SHA') === $p)>{{ $p }}</option>@endforeach
-            </select>
-          </div>
-          <div class="field">
-            <label for="v3_auth_password">Authentication password</label>
-            <input id="v3_auth_password" name="v3_auth_password" type="password" autocomplete="off" maxlength="128" {!! $err('v3_auth_password') !!}>
-            @error('v3_auth_password')<p class="error" id="v3_auth_password-error">{{ $message }}</p>@enderror
-          </div>
-        </div>
-        <div class="row" id="v3-priv">
-          <div class="field">
-            <label for="v3_priv_protocol">Encryption</label>
-            <select id="v3_priv_protocol" name="v3_priv_protocol">
-              @foreach (['AES', 'DES'] as $p)<option @selected(old('v3_priv_protocol', 'AES') === $p)>{{ $p }}</option>@endforeach
-            </select>
-          </div>
-          <div class="field">
-            <label for="v3_priv_password">Encryption password</label>
-            <input id="v3_priv_password" name="v3_priv_password" type="password" autocomplete="off" maxlength="128" {!! $err('v3_priv_password') !!}>
-            @error('v3_priv_password')<p class="error" id="v3_priv_password-error">{{ $message }}</p>@enderror
-          </div>
-        </div>
-      </div>
-
-      <div class="test-row">
-        <button type="button" id="test-snmp" class="btn quiet">Test SNMP</button>
-        <p id="test-msg" aria-live="polite">Checks that the device answers before you add it.</p>
-      </div>
-    </fieldset>
-
-    <div class="actions">
-      <button class="btn" type="submit">Add {{ strtolower($info['label']) }}</button>
-      <a class="btn quiet" href="{{ route($info['route'].'.index') }}">Cancel</a>
+      <button type="button" class="modal-x" data-close-add aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <path d="M18 6 6 18M6 6l12 12"/>
+        </svg>
+      </button>
     </div>
-  </div>
 
-  <aside class="aside">
-    <h2>What gets checked</h2>
-    <dl>
-      <dt>Every</dt><dd>1 minute</dd>
-      <dt>Asks for</dt><dd>name, model, uptime</dd>
-      <dt>Offline</dt><dd>after {{ config('devices.offline_after') }} missed checks</dd>
-    </dl>
-    <p>On the device, enable SNMP (read-only is enough) and allow this server's IP address. Use v3 where the device supports it: v1 and v2c send the community in plain text.</p>
-    @if ($type === 'ap')
-      <p>Connected-client counts per access point will use the same SNMP settings, so nothing needs to be re-entered later.</p>
-    @endif
-  </aside>
-</form>
+    {{-- ---------- Body ---------- --}}
+    <div class="modal-body">
+      <div class="info-banner">
+        <span class="chip">New device</span>
+        <span>Nothing on the device is changed — we only read it over SNMP.</span>
+        <span class="meta">
+          Offline after {{ config('devices.offline_after') }} missed checks
+        </span>
+      </div>
+
+      @if ($errors->any())
+        <div class="alert" role="alert" style="background:#FDF0EE;border-left:4px solid var(--fail,#B3372E);padding:12px 16px;border-radius:6px;font-size:.86rem;color:#7A1A14;margin-bottom:16px">
+          Fix the highlighted fields and try again.
+        </div>
+      @endif
+
+      @include('devices._fields', [
+        'device'  => $blank ?? new \App\Models\Device(),
+        'editing' => false,
+        'formId'  => 'device-form',
+      ])
+    </div>
+
+    {{-- ---------- Footer ---------- --}}
+    <div class="modal-foot">
+      <span class="foot-hint">
+        Test SNMP before saving to fill in the model, MAC, serial, and firmware automatically.
+      </span>
+      <a class="btn quiet" href="{{ route($info['route'].'.index') }}">Cancel</a>
+      <button class="btn" type="submit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        Add {{ strtolower($info['label']) }}
+      </button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 (function () {
-  const $ = (id) => document.getElementById(id);
-  const form = $('device-form'), msg = $('test-msg'), btn = $('test-snmp');
+  const dialog = document.getElementById('add-device');
+  if (!dialog || typeof dialog.showModal !== 'function') return;
 
-  function sync() {
-    const v3 = form.querySelector('input[name=snmp_version]:checked').value === '3';
-    const level = $('v3_security_level').value;
-    $('v12').hidden = v3;
-    $('v3').hidden = !v3;
-    $('v3-auth').hidden = level === 'noAuthNoPriv';
-    $('v3-priv').hidden = level !== 'authPriv';
+  const fallback = @json(route($info['route'].'.index'));
+
+  function open() {
+    requestAnimationFrame(() => {
+      dialog.showModal();
+      const first = dialog.querySelector('[aria-invalid="true"]') || document.getElementById('name');
+      if (first) first.focus({ preventScroll: true });
+    });
   }
-  form.querySelectorAll('input[name=snmp_version]').forEach((r) => r.addEventListener('change', sync));
-  $('v3_security_level').addEventListener('change', sync);
-  sync();
 
-  /* ---- Coordinates ---- */
-  const lat = $('latitude'), lng = $('longitude'), mapLink = $('map-check'), geoMsg = $('geo-msg');
-  function syncMap() {
-    const a = parseFloat(lat.value), b = parseFloat(lng.value);
-    const ok = Math.abs(a) <= 90 && Math.abs(b) <= 180 && !isNaN(a) && !isNaN(b);
-    mapLink.hidden = !ok;
-    if (ok) mapLink.href = 'https://www.google.com/maps?q=' + a + ',' + b;
+  function close() {
+    dialog.style.transition = 'opacity .14s ease, transform .14s ease';
+    dialog.style.opacity = '0';
+    dialog.style.transform = 'translateY(8px) scale(.985)';
+    setTimeout(() => {
+      dialog.close();
+      if (fallback) window.location.href = fallback;
+    }, 140);
   }
-  // Pasting "lat, lng" (as Google Maps copies it) into either box fills both.
-  [lat, lng].forEach((input) => input.addEventListener('paste', (e) => {
-    const text = (e.clipboardData || window.clipboardData).getData('text');
-    const m = text.match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
-    if (!m) return;
-    e.preventDefault();
-    lat.value = m[1];
-    lng.value = m[2];
-    syncMap();
-  }));
-  [lat, lng].forEach((input) => input.addEventListener('input', syncMap));
-  syncMap();
 
-  $('use-location').addEventListener('click', () => {
-    if (!navigator.geolocation) { geoMsg.textContent = 'This browser cannot share its location.'; return; }
-    geoMsg.textContent = 'Getting your location...';
-    navigator.geolocation.getCurrentPosition((pos) => {
-      lat.value = pos.coords.latitude.toFixed(7);
-      lng.value = pos.coords.longitude.toFixed(7);
-      syncMap();
-      geoMsg.textContent = 'Location filled in, accurate to about ' + Math.round(pos.coords.accuracy) + ' m.';
-    }, (err) => {
-      geoMsg.textContent = err.code === 1
-        ? 'Location permission was denied. Allow it in the browser, or type the coordinates.'
-        : 'Could not get a location. The page must be opened over https (or localhost) for this to work.';
-    }, { enableHighAccuracy: true, timeout: 15000 });
-  });
+  dialog.querySelectorAll('[data-close-add]').forEach((b) =>
+    b.addEventListener('click', close)
+  );
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) close(); });
+  dialog.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
 
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    msg.className = '';
-    msg.textContent = 'Asking ' + ($('host').value.trim() || 'the device') + '...';
-    try {
-      const res = await fetch(@json(route('devices.test-snmp')), {
-        method: 'POST',
-        body: new FormData(form),
-        headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.errors ? Object.values(data.errors)[0][0] : (data.message || 'The device did not answer.'));
-      msg.className = 'ok';
-      msg.textContent = 'Answered: ' + (data.sys_name || 'no name') + (data.uptime ? ', up ' + data.uptime : '')
-        + (data.sys_descr ? '. ' + data.sys_descr.slice(0, 80) : '');
-    } catch (err) {
-      msg.className = 'bad';
-      msg.textContent = err.message;
-    } finally {
-      btn.disabled = false;
-    }
-  });
+  // Auto-open on page load.
+  open();
 })();
 </script>
 @endsection

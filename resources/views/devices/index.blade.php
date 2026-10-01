@@ -6,12 +6,12 @@
 @push('head')
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <style>
-/* ---- Primary green theme (matches topbar) ---- */
+/* ---- Primary green theme ---- */
 :root {
   --signal: #0e670d;
   --signal-soft: color-mix(in srgb, #0e670d 12%, #fff);
   --signal-hover: color-mix(in srgb, #0e670d 85%, #000);
-  --line: #D0D8D4;
+  --line: #0e670d;
   --ink: #0F1A1F;
   --ink-2: #5c6b66;
   --paper: #fff;
@@ -19,54 +19,200 @@
   --fail: #B3372E;
 }
 
-/* Page wrapper — full screen height minus topbar, flex column */
 .page-wrapper {
   min-height: calc(100vh - 95px);
   display: flex;
   flex-direction: column;
 }
 
-dialog.modal { width: min(920px, calc(100vw - 24px)); max-height: calc(100vh - 32px); padding: 0; border: 0; border-radius: 8px; color: var(--ink); background: var(--paper); box-shadow: 0 28px 80px rgba(10, 20, 26, .38); }
-dialog.modal::backdrop { background: rgba(10, 20, 26, .55); backdrop-filter: blur(2px); }
+/* ============================================================
+   MODAL (shared by Add and Edit)
+   ============================================================ */
+dialog.modal {
+  width: min(920px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 0 28px 80px rgba(10, 20, 26, .38);
+  overflow: hidden;
+}
+dialog.modal::backdrop {
+  background: rgba(10, 20, 26, .55);
+  backdrop-filter: blur(2px);
+}
 dialog.modal[open] { display: flex; }
-.modal-form { display: flex; flex-direction: column; width: 100%; max-height: calc(100vh - 32px); margin: 0; }
-.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; background: #fff; border-bottom: 1px solid var(--line); }
-.modal-head h2 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
-.modal-x { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); cursor: pointer; transition: background .15s, color .15s; }
-.modal-x:hover { background: var(--hover); color: var(--ink); }
-.modal-body { flex: 1; overflow: auto; padding: 20px 20px 12px; }
-.modal-body .alert { margin-bottom: 16px; }
-.modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 14px 20px; background: #fff; border-top: 1px solid var(--line); }
-@media (max-width: 640px) { .modal-head, .modal-body, .modal-foot { padding-left: 16px; padding-right: 16px; } }
 
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  margin: 0;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+.modal-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.modal-x {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.modal-x:hover { background: var(--hover); color: var(--ink); }
+
+.modal-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 20px 12px;
+}
+.modal-body .alert { margin-bottom: 16px; }
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 20px;
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+.modal-foot .foot-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: .78rem;
+  color: var(--ink-2);
+}
+.modal-foot .foot-right { display: flex; align-items: center; gap: 8px; }
+.modal-foot .status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.modal-foot .status-chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #B8C2BD;
+}
+.modal-foot .status-chip.online { color: #0e670d; }
+.modal-foot .status-chip.online::before { background: #0e670d; }
+.modal-foot .status-chip.offline { color: var(--fail); }
+.modal-foot .status-chip.offline::before { background: var(--fail); }
+
+@media (max-width: 640px) {
+  .modal-head, .modal-body, .modal-foot { padding-left: 16px; padding-right: 16px; }
+}
+
+/* ============================================================
+   PAGE LAYOUT
+   ============================================================ */
 body.wide main { max-width: 1600px; }
 
-/* Page header */
-.page-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; margin-bottom: 0; padding: 16px 20px; background: #fff; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; flex: none; }
-.page-head h1 { margin: 0; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; text-transform: uppercase; color: var(--ink); }
-.page-head .lede { margin: 0; color: var(--ink-2); font-size: .9rem; }
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 20px;
+  margin-bottom: 0;
+  padding: 12px 16px;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  flex: none;
+}
+.page-head h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.page-head .lede { margin: 0; color: var(--ink-2); font-size: .82rem; }
 
-/* Panel — flex column, stretches to fill remaining screen height */
 .panel {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: #fff;
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   border-top: 1px solid var(--line);
   border-radius: 0 0 8px 8px;
   box-shadow: 0 1px 3px rgba(10, 20, 26, .04);
   overflow: hidden;
 }
-.panel-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: #fff; }
-.panel-head h2 { margin: 0; font-size: .82rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
-.panel-head .head-right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.panel-head {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.panel-head h2 {
+  margin: 0;
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.panel-head .head-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 
 /* Status chips */
 .stat-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.stat-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1; white-space: nowrap; border: 1px solid transparent; text-transform: uppercase; letter-spacing: .04em; }
-.stat-chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.stat-chip::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex: none; }
 .stat-chip.online { color: #0e670d; background: color-mix(in srgb, #0e670d 10%, #fff); border-color: color-mix(in srgb, #0e670d 30%, transparent); }
 .stat-chip.online::before { background: #0e670d; }
 .stat-chip.offline { color: #B3372E; background: color-mix(in srgb, var(--fail) 10%, #fff); border-color: color-mix(in srgb, var(--fail) 28%, transparent); }
@@ -75,13 +221,35 @@ body.wide main { max-width: 1600px; }
 .stat-chip.unknown::before { background: #A7B4AD; }
 
 /* Controls */
-.control { display: inline-flex; align-items: center; height: 34px; padding: 0 12px; font: inherit; font-size: .88rem; font-weight: 500; line-height: 1; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); box-sizing: border-box; transition: border-color .15s, box-shadow .15s, background .15s, color .15s; }
+.control {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 500;
+  line-height: 1;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  box-sizing: border-box;
+  transition: border-color .15s, box-shadow .15s, background .15s, color .15s;
+}
 .control:hover { background: var(--hover); }
 .control:focus { outline: none; border-color: #0e670d; box-shadow: 0 0 0 3px var(--signal-soft); }
 
-.filter-form { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
-.filter-form .hint { font-size: .82rem; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
-.filter-form select.control { min-width: 160px; padding-right: 30px; appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235c6b66' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>"); background-repeat: no-repeat; background-position: right 10px center; cursor: pointer; }
+.filter-form { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.filter-form select.control {
+  min-width: 150px;
+  padding-right: 28px;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235c6b66' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: pointer;
+}
 
 .btn.control { cursor: pointer; }
 .btn.control.primary { border-color: #0e670d; background: #0e670d; color: #fff; }
@@ -90,86 +258,275 @@ body.wide main { max-width: 1600px; }
 .btn.control.quiet:hover { background: var(--hover); }
 
 /* Bulk bar */
-.bulk { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0; padding: 10px 16px; background: color-mix(in srgb, #0e670d 6%, #fff); color: var(--ink); border-bottom: 1px solid var(--line); animation: bulk-in .2s ease; }
+.bulk {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 8px 14px;
+  background: color-mix(in srgb, #0e670d 6%, #fff);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  animation: bulk-in .2s ease;
+}
 .bulk[hidden] { display: none; }
-.bulk strong { margin-right: auto; font-weight: 600; font-size: .88rem; color: #0e670d; }
-
-/* Buttons inside the bulk bar — match the .control sizing */
-.bulk .btn { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; font: inherit; font-size: .82rem; font-weight: 500; line-height: 1; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; box-sizing: border-box; transition: background .15s, border-color .15s, color .15s; }
+.bulk strong { margin-right: auto; font-weight: 600; font-size: .82rem; color: #0e670d; }
+.bulk .btn {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 500;
+  line-height: 1;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background .15s, border-color .15s, color .15s;
+}
 .bulk .btn.quiet { color: var(--ink); border-color: var(--line); background: #fff; }
 .bulk .btn.quiet:hover { background: var(--hover); }
 .bulk .btn.danger { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 40%, transparent); background: #fff; }
 .bulk .btn.danger:hover { background: color-mix(in srgb, var(--fail) 8%, #fff); }
-
-.bulk .link { background: none; border: 0; color: var(--ink-2); font: inherit; font-size: .82rem; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; padding: 4px 0; }
+.bulk .link {
+  background: none;
+  border: 0;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: .78rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 4px 0;
+}
 .bulk .link:hover { color: var(--ink); }
 
 @keyframes bulk-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
-/* Table wrapper */
+/* ============================================================
+   TABLE
+   ============================================================ */
 .table-wrap { flex: 1; min-height: 0; overflow: auto; }
 
-table.inventory { width: 100%; border-collapse: collapse; font-size: .88rem; }
-table.inventory th, table.inventory td { padding: 10px 14px; vertical-align: middle; border-bottom: 1px solid var(--line); white-space: nowrap; }
-table.inventory th { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); background: #FCFDFC; position: sticky; top: 0; z-index: 1; }
+table.inventory {
+  width: 100%;
+  min-width: 1080px;
+  border-collapse: collapse;
+  font-size: .82rem;
+  table-layout: fixed;
+}
+
+table.inventory th,
+table.inventory td {
+  padding: 6px 10px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+table.inventory th {
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--ink-2);
+  background: #FCFDFC;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: normal;
+  line-height: 1.2;
+}
+
 table.inventory tbody tr { transition: background .12s; }
 table.inventory tbody tr:last-child td { border-bottom: 0; }
 table.inventory tbody tr:hover { background: var(--hover); }
 table.inventory tbody tr.selected { background: var(--signal-soft); }
 table.inventory tbody tr.selected:hover { background: color-mix(in srgb, var(--signal-soft) 85%, #fff); }
-table.inventory .sel { width: 40px; text-align: center; padding-right: 4px; }
-table.inventory .sel input { width: 16px; height: 16px; accent-color: #0e670d; cursor: pointer; vertical-align: middle; }
-table.inventory .num { width: 44px; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; font-size: .82rem; }
 
-.dev { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
-.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #B8C2BD; }
-.dot.online { background: #0e670d; box-shadow: 0 0 0 3px color-mix(in srgb, #0e670d 20%, transparent); }
-.dot.offline { background: var(--fail); box-shadow: 0 0 0 3px color-mix(in srgb, var(--fail) 16%, transparent); }
+table.inventory .sel { width: 36px; text-align: center; padding-right: 2px; }
+table.inventory .sel input { width: 14px; height: 14px; accent-color: #0e670d; cursor: pointer; vertical-align: middle; }
+table.inventory .num { width: 44px; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; font-size: .78rem; }
 
-.pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1.3; white-space: nowrap; text-transform: uppercase; letter-spacing: .04em; }
+table.inventory th:nth-child(1),  table.inventory td:nth-child(1)  { width: 36px; text-align: center; }
+table.inventory th:nth-child(2),  table.inventory td:nth-child(2)  { width: 44px; text-align: right; }
+table.inventory th:nth-child(3),  table.inventory td:nth-child(3)  { width: 150px; }
+table.inventory th:nth-child(4),  table.inventory td:nth-child(4)  { width: 96px; }
+table.inventory th:nth-child(5),  table.inventory td:nth-child(5)  { width: 140px; }
+table.inventory th:nth-child(6),  table.inventory td:nth-child(6)  { width: 130px; }
+table.inventory th:nth-child(7),  table.inventory td:nth-child(7)  { width: 130px; }
+table.inventory th:nth-child(8),  table.inventory td:nth-child(8)  { width: 130px; }
+table.inventory th:nth-child(9),  table.inventory td:nth-child(9)  { width: 100px; }
+table.inventory th:nth-child(10), table.inventory td:nth-child(10) { width: 150px; white-space: normal; }
+table.inventory th:nth-child(11), table.inventory td:nth-child(11) { width: 110px; }
+table.inventory th:nth-child(12), table.inventory td:nth-child(12) { width: 120px; text-align: right; }
+
+table.inventory td { vertical-align: middle; }
+table.inventory td .dev { display: flex; align-items: center; gap: 6px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #B8C2BD; }
+.dot.online { background: #0e670d; box-shadow: 0 0 0 2px color-mix(in srgb, #0e670d 20%, transparent); }
+.dot.offline { background: var(--fail); box-shadow: 0 0 0 2px color-mix(in srgb, var(--fail) 16%, transparent); }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
 .pill.online { color: #0e670d; background: color-mix(in srgb, #0e670d 12%, #fff); border: 1px solid color-mix(in srgb, #0e670d 32%, transparent); }
 .pill.offline { color: #B3372E; background: color-mix(in srgb, var(--fail) 10%, #fff); border: 1px solid color-mix(in srgb, var(--fail) 28%, transparent); }
 .pill.unknown { color: #5c6b66; background: #F0F3F1; border: 1px solid var(--line); }
-.pill .dot { width: 6px; height: 6px; box-shadow: none; }
+.pill .dot { width: 5px; height: 5px; box-shadow: none; }
 
 .none { color: #A7B4AD; }
-.mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .82rem; color: var(--ink); }
-table.inventory td small { display: block; color: var(--ink-2); font-size: .78rem; margin-top: 2px; white-space: normal; }
+.mono {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: .78rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+table.inventory td small { display: block; color: var(--ink-2); font-size: .72rem; margin-top: 1px; white-space: normal; }
 table.inventory a { color: #0e670d; text-decoration: none; }
 table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
-/* Row actions */
-.acts { display: flex; gap: 6px; justify-content: flex-end; }
+.acts { display: flex; gap: 4px; justify-content: flex-end; }
 .acts form { margin: 0; }
-.acts .btn { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; font-size: .78rem; font-weight: 500; border-radius: 6px; border: 1px solid var(--line); background: #fff; color: var(--ink); text-decoration: none; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.acts .btn {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 8px;
+  font-size: .74rem;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
 .acts .btn:hover { background: var(--hover); }
 .acts .btn.danger { color: #B3372E; border-color: color-mix(in srgb, var(--fail) 35%, transparent); }
 .acts .btn.danger:hover { background: color-mix(in srgb, var(--fail) 8%, #fff); }
 
-.plan { text-align: center; padding: 44px 24px; }
-.plan h2 { margin: 0 0 8px; font-size: 1.05rem; font-weight: 650; color: var(--ink); }
-.plan p { margin: 0; color: var(--ink-2); max-width: 36ch; margin-inline: auto; font-size: .9rem; }
+.plan { text-align: center; padding: 36px 24px; }
+.plan h2 { margin: 0 0 6px; font-size: 1rem; font-weight: 650; color: var(--ink); }
+.plan p { margin: 0; color: var(--ink-2); max-width: 36ch; margin-inline: auto; font-size: .85rem; }
 
-/* Pagination + stats footer — chips on the left, pager on the right */
 .pagination-wrap {
   flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 16px;
-  padding: 12px 16px;
+  gap: 8px 12px;
+  padding: 8px 14px;
   border-top: 1px solid var(--line);
 }
 .pagination-wrap .stat-group { margin-right: auto; }
 
-@media (max-width: 900px) { table.inventory th, table.inventory td { padding: 9px 12px; } }
+/* ============================================================
+   RESPONSIVE — mobile cards (< 760px)
+   ============================================================ */
 @media (max-width: 760px) {
+  .panel-head { flex-direction: column; align-items: stretch; gap: 8px; }
   .panel-head .head-right { margin-left: 0; width: 100%; }
   .filter-form { width: 100%; }
-  .filter-form select.control { flex: 1; }
+  .filter-form select.control { flex: 1; min-width: 0; }
   .btn.control { flex: 0 0 auto; }
+
+  .table-wrap { overflow: visible; }
+
+  table.inventory { min-width: 0; display: block; }
+  table.inventory thead { display: none; }
+  table.inventory tbody { display: block; }
+
+  table.inventory tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    background: #fff;
+  }
+  table.inventory tbody tr:hover,
+  table.inventory tbody tr.selected { background: var(--signal-soft); }
+  table.inventory tbody tr:last-child { border-bottom: 0; }
+
+  table.inventory td {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: auto !important;
+    padding: 0;
+    border: 0;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    text-align: left !important;
+  }
+
+  table.inventory td::before {
+    content: attr(data-label);
+    font-size: .6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--ink-2);
+  }
+
+  table.inventory td:nth-child(3),
+  table.inventory td:nth-child(10),
+  table.inventory td:nth-child(12) {
+    grid-column: 1 / -1;
+  }
+
+  table.inventory td:nth-child(1),
+  table.inventory td:nth-child(2) {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  table.inventory td:nth-child(1)::before,
+  table.inventory td:nth-child(2)::before { display: none; }
+
+  table.inventory td:nth-child(12) {
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+    margin-top: 4px;
+  }
+  .acts { justify-content: flex-start; }
+
+  table.inventory td:nth-child(3) .dev { font-size: .95rem; }
 }
-@media (max-width: 640px) { .page-head h1 { font-size: 1rem; } .panel-head { align-items: flex-start; } }
+
+@media (max-width: 420px) {
+  .page-head { padding: 10px 12px; }
+  .page-head h1 { font-size: .9rem; }
+  .page-head .lede { font-size: .75rem; }
+  .stat-chip { font-size: .62rem; height: 20px; padding: 0 7px; }
+  .bulk { padding: 6px 10px; }
+  .bulk strong { font-size: .75rem; }
+  .bulk .btn { height: 26px; font-size: .72rem; padding: 0 8px; }
+}
 </style>
 @endpush
 
@@ -203,19 +560,9 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
     </div>
   @else
     <div class="panel">
-      {{-- Panel header: title on the left, filter + add on the right --}}
       <div class="panel-head">
-        <div class="stat-group" role="group" aria-label="Device status summary">
-          <span class="stat-chip online">{{ number_format($counts['online'] ?? 0) }} online</span>
-          <span class="stat-chip offline">{{ number_format($counts['offline'] ?? 0) }} offline</span>
-          @if (($counts['unknown'] ?? 0) > 0)
-            <span class="stat-chip unknown">{{ number_format($counts['unknown']) }} not checked</span>
-          @endif
-        </div>
-
         <div class="head-right">
           <form class="filter-form" method="GET" action="{{ route($info['route'].'.index') }}">
-            <label for="barangay" class="hint">Location</label>
             <select id="barangay" name="barangay" class="control" onchange="this.form.submit()">
               <option value="">All barangays</option>
               @foreach ($barangays as $b)
@@ -271,31 +618,32 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
             @foreach ($devices as $d)
               @php $dash = '<span class="none">–<span class="sr-only">Not set</span></span>'; @endphp
               <tr>
-                <td class="sel">
+                <td class="sel" data-label="">
                   <input type="checkbox" name="ids[]" value="{{ $d->id }}" form="bulk-form" class="row-check" aria-label="Select {{ $d->name }}">
                 </td>
-                <td class="num">{{ $devices->firstItem() + $loop->index }}</td>
-                <td>
+                <td class="num" data-label="No.">{{ $devices->firstItem() + $loop->index }}</td>
+                <td data-label="Device name">
                   <span class="dev" title="{{ $d->statusLabel() }}{{ $d->last_checked_at ? ', checked '.$d->last_checked_at->diffForHumans() : '' }}{{ $d->status === 'offline' && $d->last_error ? '. '.$d->last_error : '' }}">
+                    <span class="dot {{ $d->status }}" aria-hidden="true"></span>
                     {{ $d->name }}
                   </span>
                 </td>
-                <td>
+                <td data-label="Status">
                   <span class="pill {{ $d->status }}">
                     <span class="dot {{ $d->status }}" aria-hidden="true"></span>
                     {{ $d->statusLabel() }}
                   </span>
                 </td>
-                <td>{!! $d->model ? e($d->model) : $dash !!}</td>
-                <td class="mono">{{ $d->host }}@if ($d->snmp_port !== 161):{{ $d->snmp_port }}@endif</td>
-                <td class="mono">{!! $d->mac_address ? e($d->mac_address) : $dash !!}</td>
-                <td class="mono">{!! $d->serial_number ? e($d->serial_number) : $dash !!}</td>
-                <td class="mono">{!! $d->firmware_version ? e($d->firmware_version) : $dash !!}</td>
-                <td style="white-space:normal; min-width:140px">
+                <td data-label="Device model">{!! $d->model ? e($d->model) : $dash !!}</td>
+                <td class="mono" data-label="IP address">{{ $d->host }}@if ($d->snmp_port !== 161):{{ $d->snmp_port }}@endif</td>
+                <td class="mono" data-label="MAC address">{!! $d->mac_address ? e($d->mac_address) : $dash !!}</td>
+                <td class="mono" data-label="Serial number">{!! $d->serial_number ? e($d->serial_number) : $dash !!}</td>
+                <td class="mono" data-label="Firmware">{!! $d->firmware_version ? e($d->firmware_version) : $dash !!}</td>
+                <td data-label="Location" style="white-space:normal; line-height:1.3">
                   {{ $d->barangay_name ?? 'No barangay' }}
                   @if ($d->location)<small>{{ $d->location }}</small>@endif
                 </td>
-                <td class="mono">
+                <td class="mono" data-label="Lat, long">
                   @if ($d->hasCoordinates())
                     <a href="{{ $d->mapUrl() }}" target="_blank" rel="noopener" title="Open in Google Maps">
                       {{ (float) $d->latitude }}, {{ (float) $d->longitude }}
@@ -304,9 +652,17 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                     {!! $dash !!}
                   @endif
                 </td>
-                <td>
+                <td data-label="Actions">
                   <div class="acts">
-                    <a class="btn quiet sm" href="{{ route('devices.edit', [$d, 'barangay' => $filter]) }}">Edit</a>
+                    {{-- EDIT NOW OPENS THE MODAL --}}
+                    <button type="button"
+                            class="btn quiet sm"
+                            data-edit-device="{{ $d->id }}"
+                            data-edit-name="{{ $d->name }}"
+                            data-edit-status="{{ $d->status }}"
+                            data-edit-status-label="{{ $d->statusLabel() }}"
+                            data-edit-checked="{{ $d->last_checked_at ? $d->last_checked_at->diffForHumans() : '' }}">Edit</button>
+
                     <form method="POST" action="{{ route('devices.destroy', $d) }}" onsubmit="return confirm('Delete {{ $d->name }}? It will no longer be monitored.')">
                       @csrf @method('DELETE')
                       <button class="btn danger sm" type="submit">Delete</button>
@@ -319,15 +675,23 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
           </table>
         </div>
 
-        {{-- Footer: status chips on the left, pagination on the right --}}
         <div class="pagination-wrap">
+          <div class="stat-group" role="group" aria-label="Device status summary">
+            <span class="stat-chip online">{{ number_format($counts['online'] ?? 0) }} online</span>
+            <span class="stat-chip offline">{{ number_format($counts['offline'] ?? 0) }} offline</span>
+            @if (($counts['unknown'] ?? 0) > 0)
+              <span class="stat-chip unknown">{{ number_format($counts['unknown']) }} not checked</span>
+            @endif
+          </div>
           {{ $devices->links() }}
         </div>
       @endif
     </div>
   @endif
 
-  {{-- ---------- Add pop-up ---------- --}}
+  {{-- ============================================================
+       ADD pop-up
+       ============================================================ --}}
   @php $addFailed = $errors->any() && old('_form') === 'add'; @endphp
   <dialog class="modal" id="add-device" aria-labelledby="add-title">
     <form id="add-form" class="modal-form device-fields" method="POST" action="{{ route($info['route'].'.store') }}" novalidate>
@@ -354,31 +718,138 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
     </form>
   </dialog>
 
+  {{-- ============================================================
+       EDIT pop-up (single dialog, fields populated by JS)
+       ============================================================ --}}
+  @php $editFailed = $errors->any() && old('_form') === 'edit'; @endphp
+  <dialog class="modal" id="edit-device" aria-labelledby="edit-title">
+    <form id="edit-form" class="modal-form device-fields" method="POST" action="" novalidate>
+      @csrf @method('PUT')
+      <input type="hidden" name="_form" value="edit">
+      <input type="hidden" name="device_id" value="">
+      <input type="hidden" name="return_barangay" value="{{ $filter }}">
+
+      <div class="modal-head">
+        <h2 id="edit-title">Edit device</h2>
+        <button type="button" class="modal-x" data-close-edit aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        @if ($editFailed)
+          <div class="alert" role="alert">Fix the highlighted fields and try again.</div>
+        @endif
+
+        <div id="edit-fields-slot">
+          @php
+            $editDevice = $editFailed && old('device_id')
+              ? ($devices->firstWhere('id', (int) old('device_id')) ?? $blank)
+              : $blank;
+          @endphp
+          @include('devices._fields', ['device' => $editDevice, 'editing' => true, 'formId' => 'edit-form'])
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <div class="foot-left">
+          <span class="status-chip" id="edit-status-chip">—</span>
+          <span id="edit-status-meta"></span>
+        </div>
+        <div class="foot-right">
+          <button type="button" class="btn quiet" data-close-edit>Cancel</button>
+          <button type="submit" class="btn">Save changes</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  {{-- ============================================================
+       Scripts
+       ============================================================ --}}
   <script>
   (function () {
-    const dialog = document.getElementById('add-device');
-    if (!dialog || typeof dialog.showModal !== 'function') return;
-
-    function open() {
-      dialog.showModal();
-      const first = dialog.querySelector('[aria-invalid="true"]') || document.getElementById('name');
+    /* ---------- ADD modal ---------- */
+    const addDialog = document.getElementById('add-device');
+    function openAdd() {
+      if (!addDialog || typeof addDialog.showModal !== 'function') return;
+      addDialog.showModal();
+      const first = addDialog.querySelector('[aria-invalid="true"]') || document.getElementById('name');
       if (first) first.focus();
     }
-    function close() { dialog.close(); }
+    function closeAdd() { if (addDialog) addDialog.close(); }
 
     document.querySelectorAll('[data-open-add]').forEach((a) =>
-      a.addEventListener('click', (e) => { e.preventDefault(); open(); })
+      a.addEventListener('click', (e) => { e.preventDefault(); openAdd(); })
     );
-    dialog.querySelectorAll('[data-close-add]').forEach((b) =>
-      b.addEventListener('click', close)
-    );
-    dialog.addEventListener('click', (e) => { if (e.target === dialog) close(); });
+    if (addDialog) {
+      addDialog.querySelectorAll('[data-close-add]').forEach((b) =>
+        b.addEventListener('click', closeAdd)
+      );
+      addDialog.addEventListener('click', (e) => { if (e.target === addDialog) closeAdd(); });
+    }
 
     const url = new URL(location.href);
     if (url.searchParams.has('add') || @json($addFailed)) {
-      open();
+      openAdd();
       url.searchParams.delete('add');
       history.replaceState(null, '', url);
+    }
+
+    /* ---------- EDIT modal ---------- */
+    const editDialog = document.getElementById('edit-device');
+    const editForm   = document.getElementById('edit-form');
+    const editTitle  = document.getElementById('edit-title');
+    const chip       = document.getElementById('edit-status-chip');
+    const meta       = document.getElementById('edit-status-meta');
+    const idField    = editForm ? editForm.querySelector('input[name="device_id"]') : null;
+
+    function openEdit(btn) {
+      if (!editDialog || typeof editDialog.showModal !== 'function') return;
+
+      const id     = btn.dataset.editDevice;
+      const name   = btn.dataset.editName || 'device';
+      const status = btn.dataset.editStatus || 'unknown';
+      const label  = btn.dataset.editStatusLabel || status;
+      const checked = btn.dataset.editChecked || '';
+
+      // Update form action to the correct update route.
+      editForm.action = '{{ url($info['route']) }}/' + id;
+      if (idField) idField.value = id;
+
+      // Update header + footer.
+      editTitle.textContent = 'Edit ' + name;
+      chip.className = 'status-chip ' + status;
+      chip.textContent = label;
+      meta.textContent = checked ? 'Checked ' + checked : '';
+
+      editDialog.showModal();
+      const first = editDialog.querySelector('[aria-invalid="true"]') || document.getElementById('name');
+      if (first) first.focus();
+    }
+    function closeEdit() { if (editDialog) editDialog.close(); }
+
+    document.querySelectorAll('[data-edit-device]').forEach((btn) =>
+      btn.addEventListener('click', () => openEdit(btn))
+    );
+    if (editDialog) {
+      editDialog.querySelectorAll('[data-close-edit]').forEach((b) =>
+        b.addEventListener('click', closeEdit)
+      );
+      editDialog.addEventListener('click', (e) => { if (e.target === editDialog) closeEdit(); });
+    }
+
+    // If validation failed on an edit, reopen that dialog.
+    if (@json($editFailed) && editDialog) {
+      const id = @json(old('device_id'));
+      const row = document.querySelector('[data-edit-device="' + id + '"]');
+      if (row) {
+        openEdit(row);
+      } else {
+        editDialog.showModal();
+      }
     }
   })();
   </script>
