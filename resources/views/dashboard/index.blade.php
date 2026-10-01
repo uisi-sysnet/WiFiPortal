@@ -55,7 +55,7 @@
   {{-- ---------- Clients by barangay (live; refreshed with the top row) ---------- --}}
   <section class="panel top" aria-labelledby="top-title">
     <div class="panel-head">
-      <h2 id="top-title">Busiest barangays now</h2>
+      <h2 id="top-title">Busiest Locations Now</h2>
       <p>Clients on access points</p>
     </div>
     <div id="barangay-clients">
