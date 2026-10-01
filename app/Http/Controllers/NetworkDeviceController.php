@@ -258,6 +258,8 @@ class NetworkDeviceController extends Controller
             'firmware_version' => ['nullable', 'string', 'max:64'],
             'barangay_id' => ['required', 'integer', 'exists:barangays,id'],
             'location' => ['nullable', 'string', 'max:255'],
+            'deployed_at' => ['nullable', 'date', 'before_or_equal:today'],
+            'warranty' => ['nullable', 'string', 'max:255'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'uplink' => ['nullable', 'string', 'regex:/^(router|switch):\d+$/'],

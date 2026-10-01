@@ -17,7 +17,7 @@ class NetworkDevice extends Model
     protected $fillable = [
         'type', 'name', 'brand', 'model', 'mac_address', 'serial_number', 'firmware_version',
         'mikrotik_router_id', 'uplink_device_id', 'barangay_id', 'location', 'latitude', 'longitude',
-        'host', 'snmp_port', 'snmp_version', 'community',
+        'deployed_at', 'warranty', 'host', 'snmp_port', 'snmp_version', 'community',
         'v3_username', 'v3_security_level', 'v3_auth_protocol', 'v3_auth_password',
         'v3_priv_protocol', 'v3_priv_password',
     ];
@@ -43,6 +43,7 @@ class NetworkDevice extends Model
             'clients' => 'integer',
             'utilization' => 'integer',
             'failures' => 'integer',
+            'deployed_at' => 'date',  
             'last_seen_at' => 'datetime',
             'last_checked_at' => 'datetime',
         ];
