@@ -33,24 +33,86 @@
 @once
 <style>
 .dm{position:relative}
-/* Light theme: muted dark gray links, dark on hover, green when active */
-.dm-trigger{display:inline-flex;align-items:center;gap:6px;padding:4px 0;border:0;border-bottom:2px solid transparent;background:none;color:var(--dm-link,#5c6b66);font:inherit;cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s}
-.dm-trigger:hover,.dm-trigger[aria-expanded="true"]{color:var(--dm-link-active,#0F1A1F)}
-.dm-trigger[data-active]{color:var(--dm-accent,#0e670d);border-bottom-color:var(--dm-accent,#0e670d)}
+
+/* ===== Trigger (sits on the green topbar) ===== */
+.dm-trigger{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 12px;
+  border:0;border-radius:6px;
+  background:none;
+  color:var(--dm-link,rgba(255,255,255,.75));
+  font:inherit;font-size:.875rem;font-weight:500;
+  cursor:pointer;white-space:nowrap;
+  transition:color .15s,background .15s;
+}
+.dm-trigger:hover,
+.dm-trigger[aria-expanded="true"]{
+  color:var(--dm-link-active,#fff);
+  background:var(--dm-hover,rgba(255,255,255,.10));
+}
+.dm-trigger[data-active]{
+  color:var(--dm-accent,#fff);
+  background:var(--dm-active-bg,rgba(255,255,255,.15));
+  font-weight:600;
+}
 .dm-trigger svg{transition:transform .15s}
 .dm-trigger[aria-expanded="true"] svg{transform:rotate(180deg)}
-.dm-menu{position:absolute;left:-10px;top:calc(100% + 8px);z-index:100;min-width:220px;padding:6px;border:1px solid var(--dm-line,#D0D8D4);border-radius:8px;background:var(--dm-bg,#fff);color:var(--dm-fg,#0F1A1F);box-shadow:var(--dm-shadow,0 12px 32px rgba(22,36,46,.14))}
+
+/* ===== Dropdown menu (white card, green accent) ===== */
+.dm-menu{
+  position:absolute;left:0;top:calc(100% + 10px);z-index:100;
+  min-width:230px;padding:6px;
+  border:1px solid var(--dm-line,#D0D8D4);
+  border-radius:10px;
+  background:var(--dm-bg,#fff);
+  color:var(--dm-fg,#0F1A1F);
+  box-shadow:var(--dm-shadow,0 16px 40px -12px rgba(10,20,26,.28), 0 4px 12px -4px rgba(10,20,26,.12));
+  animation:dm-in .14s ease-out;
+}
 .dm-menu[hidden]{display:none}
-.dm-group{margin:0;padding:8px 10px 4px;font-size:.78rem;font-weight:600;color:var(--dm-muted,#5c6b66)}
+@keyframes dm-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+
+.dm-group{
+  margin:0;padding:8px 10px 6px;
+  font-size:.7rem;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em;
+  color:var(--dm-muted,#5c6b66);
+}
 .dm-sep{margin-top:4px;padding-top:2px;border-top:1px solid var(--dm-line,#D0D8D4)}
-/* .dm prefix outranks the nav bar's own link rules (.topbar nav a, .bar nav a) */
-.dm .dm-menu a,.dm .dm-menu a:hover,.dm .dm-menu a:focus,.dm .dm-menu a[aria-current="page"]{display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-radius:5px;box-shadow:none;color:var(--dm-fg,#0F1A1F);text-decoration:none;font-size:.92rem;white-space:nowrap}
-.dm .dm-menu a:hover,.dm .dm-menu a:focus{background:var(--dm-hover,#F0F3F1);outline:none}
-.dm .dm-menu a[aria-current="page"]{font-weight:600;color:var(--dm-accent,#0e670d);background:var(--dm-current-bg,color-mix(in srgb,#0e670d 8%,#fff))}
-.dm-menu svg{flex:none;color:var(--dm-muted,#5c6b66)}
+
+/* .dm prefix outranks the nav bar's own link rules */
+.dm .dm-menu a,
+.dm .dm-menu a:hover,
+.dm .dm-menu a:focus,
+.dm .dm-menu a[aria-current="page"]{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 10px;
+  border:0;border-radius:6px;box-shadow:none;
+  color:var(--dm-fg,#0F1A1F);
+  text-decoration:none;font-size:.9rem;
+  white-space:nowrap;
+  transition:background .12s,color .12s;
+}
+.dm .dm-menu a:hover,
+.dm .dm-menu a:focus{
+  background:var(--dm-hover,#F0F3F1);
+  outline:none;
+}
+.dm .dm-menu a[aria-current="page"]{
+  font-weight:600;
+  color:var(--dm-accent,#0e670d);
+  background:var(--dm-current-bg,color-mix(in srgb,#0e670d 8%,#fff));
+}
+.dm-menu svg{flex:none;color:var(--dm-muted,#5c6b66);transition:color .12s}
+.dm .dm-menu a:hover svg{color:var(--dm-fg,#0F1A1F)}
 .dm .dm-menu a[aria-current="page"] svg{color:var(--dm-accent,#0e670d)}
-@media (prefers-reduced-motion:reduce){.dm-trigger svg{transition:none}}
+
+@media (prefers-reduced-motion:reduce){
+  .dm-trigger svg{transition:none}
+  .dm-menu{animation:none}
+}
 </style>
+
 <script>
 document.querySelectorAll('[data-dm]').forEach(function (root) {
   var button = root.querySelector('.dm-trigger'), menu = root.querySelector('.dm-menu');
