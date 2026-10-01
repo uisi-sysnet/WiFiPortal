@@ -33,8 +33,8 @@
   <nav aria-label="Main">
     <a href="{{ route('dashboard') }}" aria-current="page">Dashboard</a>
     @include('partials.devices-menu')
-    {{-- Same items as the main menu in layouts/app (Guest has no page yet there either) --}}
-    <a href="" @if(request()->routeIs('guest.*')) aria-current="page" @endif>Guest</a>
+    {{-- Same items as the main menu in layouts/app --}}
+    <a href="{{ route('users.index') }}">Users</a>
     <a href="{{ route('splash.edit') }}">Captive portal</a>
   </nav>
   <p class="health" role="status" id="health"><b>{{ $k['routers']['online'] }} of {{ $k['routers']['total'] }}</b> routers online</p>

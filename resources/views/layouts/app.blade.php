@@ -89,7 +89,7 @@
               aria-[current=page]:after:opacity-100"
        @if(request()->routeIs('dashboard')) aria-current="page" @endif>Dashboard</a>
     @include('partials.devices-menu')
-    <a href=""
+    <a href="{{ route('users.index') }}"
        class="relative inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium
               text-white/90 no-underline transition-all duration-200
               hover:text-[#F2B84B]
@@ -98,7 +98,7 @@
               hover:after:opacity-100
               aria-[current=page]:text-[#F2B84B] aria-[current=page]:font-semibold
               aria-[current=page]:after:opacity-100"
-       @if(request()->routeIs('guest.*')) aria-current="page" @endif>Guest</a>
+       @if(request()->routeIs('users.*')) aria-current="page" @endif>Users</a>
     <a href="{{ route('splash.edit') }}"
        class="relative inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium
               text-white/90 no-underline transition-all duration-200

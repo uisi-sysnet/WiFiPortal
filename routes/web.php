@@ -8,6 +8,7 @@ use App\Http\Controllers\PortalMediaController;
 use App\Http\Controllers\RouterController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SplashPageController;
+use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 // Public captive portal, one per hotspot network (reached by phones through the hotspot)
@@ -43,6 +44,8 @@ Route::middleware('auth')->group(function () {
     Route::put('/settings/barangays/{barangay}', [SettingsController::class, 'updateBarangay'])->name('barangays.update');
     Route::delete('/settings/barangays/{barangay}', [SettingsController::class, 'destroyBarangay'])->name('barangays.destroy');
     Route::view('/logs', 'logs.index')->name('logs');
+    Route::get('/users', [UserController::class, 'index'])->name('users.index');
+    Route::get('/users/report.pdf', [UserController::class, 'report'])->name('users.report');
 
     // Access points and switches (SNMP monitoring). The type comes from the URL.
     foreach (['ap' => ['access-points', 'aps'], 'switch' => ['switches', 'switches']] as $type => [$path, $name]) {

@@ -116,7 +116,7 @@ class LiveDashboardTest extends TestCase
         $sucat = \App\Models\Barangay::create(['name' => 'Sucat']);
         \App\Models\Barangay::create(['name' => 'Tunasan']); // no access points
         $ap = fn ($b, $status, $clients) => NetworkDevice::forceCreate([
-            'type' => 'ap', 'name' => 'ap-'.uniqid(), 'host' => '172.20.0.'.mt_rand(2, 250), 'snmp_version' => '2c',
+            'type' => 'ap', 'name' => 'ap-'.uniqid(), 'host' => '172.20.0.'.(NetworkDevice::count() + 2), 'snmp_version' => '2c',
             'barangay_id' => $b->id, 'status' => $status, 'clients' => $clients,
         ]);
         $ap($pob, 'online', 40);
