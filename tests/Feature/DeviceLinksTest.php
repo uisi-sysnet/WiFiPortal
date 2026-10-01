@@ -107,6 +107,18 @@ class DeviceLinksTest extends TestCase
         $this->assertSame('Ubiquiti U6-Pro', $map['model']);
     }
 
+    public function test_edit_dialog_gets_brand_and_connection_so_saving_keeps_them(): void
+    {
+        $switch = $this->add('switches', 'SW-1', '');
+        $this->post('/access-points', ['brand' => 'TP-Link'] + $this->fields('AP-1', "switch:{$switch->id}"))->assertSessionHasNoErrors();
+
+        $this->get('/access-points')->assertOk()
+            ->assertSee('data-edit-brand="TP-Link"', false)
+            ->assertSee('data-edit-uplink="switch:'.$switch->id.'"', false)
+            ->assertSee("setField('uplink',", false)
+            ->assertSee("setField('brand',", false);
+    }
+
     public function test_router_position_needs_both_coordinates(): void
     {
         $router = $this->router('site-a');

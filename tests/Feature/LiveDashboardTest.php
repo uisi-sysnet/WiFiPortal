@@ -126,7 +126,7 @@ class LiveDashboardTest extends TestCase
         $ap($sucat, 'online', null); // doesn't report
 
         $page = $this->get('/dashboard')->assertOk();
-        $page->assertSee('Busiest barangays now');
+        $page->assertSee('Busiest Locations Now');
         $page->assertSeeInOrder(['Sucat', '120', 'Poblacion', '65', 'Tunasan', 'No access points']);
         $page->assertSee('2 of 3 APs online', false);
         $page->assertSee('2 of 2 APs online, 1 reporting', false);

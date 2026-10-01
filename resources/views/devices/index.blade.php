@@ -618,7 +618,7 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                 <th scope="col" class="num">No.</th>
                 <th scope="col">Device name</th>
                 <th scope="col">Status</th>
-                <th scope="col">Device model</th>
+                <th scope="col">Brand and model</th>
                 <th scope="col">IP address</th>
                 <th scope="col">MAC address</th>
                 <th scope="col">Serial number</th>
@@ -647,7 +647,7 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                     {{ $d->statusLabel() }}
                   </span>
                 </td>
-                <td data-label="Device model">{!! $d->model ? e($d->model) : $dash !!}</td>
+                <td data-label="Brand and model">{!! ($d->brand || $d->model) ? e(trim($d->brand.' '.$d->model)) : $dash !!}</td>
                 <td class="mono" data-label="IP address">{{ $d->host }}@if ($d->snmp_port !== 161):{{ $d->snmp_port }}@endif</td>
                 <td class="mono" data-label="MAC address">{!! $d->mac_address ? e($d->mac_address) : $dash !!}</td>
                 <td class="mono" data-label="Serial number">{!! $d->serial_number ? e($d->serial_number) : $dash !!}</td>
@@ -677,13 +677,14 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                             data-edit-device="{{ $d->id }}"
                             data-edit-action="{{ route('devices.update', $d) }}"
                             data-edit-name="{{ $d->name }}"
+                            data-edit-brand="{{ $d->brand }}"
                             data-edit-model="{{ $d->model }}"
                             data-edit-firmware="{{ $d->firmware_version }}"
                             data-edit-mac="{{ $d->mac_address }}"
                             data-edit-serial="{{ $d->serial_number }}"
                             data-edit-barangay="{{ $d->barangay_id }}"
                             data-edit-location="{{ $d->location }}"
-                            data-edit-router="{{ $d->mikrotik_router_id }}"
+                            data-edit-uplink="{{ $d->uplinkValue() }}"
                             data-edit-lat="{{ $d->latitude }}"
                             data-edit-lng="{{ $d->longitude }}"
                             data-edit-host="{{ $d->host }}"
@@ -887,13 +888,14 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
 
       // ---- Populate every field ----
       setField('name',               d.editName);
+      setField('brand',              d.editBrand);
       setField('model',              d.editModel);
       setField('firmware_version',   d.editFirmware);
       setField('mac_address',        d.editMac);
       setField('serial_number',      d.editSerial);
       setField('barangay_id',        d.editBarangay);
       setField('location',           d.editLocation);
-      setField('mikrotik_router_id', d.editRouter);
+      setField('uplink',             d.editUplink); // "Connected to": switch:ID or router:ID
       setField('latitude',           d.editLat);
       setField('longitude',          d.editLng);
       setField('host',               d.editHost);
