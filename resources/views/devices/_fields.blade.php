@@ -49,6 +49,30 @@
                  spellcheck="false" {!! $err('firmware_version') !!}>
           @error('firmware_version')<p class="error" id="firmware_version-error">{{ $message }}</p>@enderror
         </div>
+        {{-- NEW ROW: deployment + warranty --}}
+        <div class="field">
+          <label for="deployed_at">Deployed on <span class="hint">(optional)</span></label>
+          <div class="input-wrap">
+            <input id="deployed_at" name="deployed_at" type="date" max="{{ now()->toDateString() }}"
+                   value="{{ $val('deployed_at') ? \Illuminate\Support\Carbon::parse($val('deployed_at'))->toDateString() : '' }}"
+                   {!! $err('deployed_at') !!}>
+          </div>
+          @error('deployed_at')<p class="error" id="deployed_at-error">{{ $message }}</p>@enderror
+        </div>
+
+        <div class="field">
+          <label for="warranty">Warranty <span class="hint">(optional)</span></label>
+          <select id="warranty" name="warranty" {!! $err('warranty') !!}>
+            <option value="">No warranty recorded</option>
+            @for ($y = 1; $y <= 5; $y++)
+              <option value="{{ $y }} {{ \Illuminate\Support\Str::plural('year', $y) }}"
+                      @selected($val('warranty') === $y.' '.\Illuminate\Support\Str::plural('year', $y))>
+                {{ $y }} {{ \Illuminate\Support\Str::plural('year', $y) }}
+              </option>
+            @endfor
+          </select>
+          @error('warranty')<p class="error" id="warranty-error">{{ $message }}</p>@enderror
+        </div>
       </div>
       <div class="row">
         <div class="field">
@@ -241,6 +265,26 @@
 @once
 <style>
 /* --- Green Theme Device Fields (Compact, well-spaced) --- */
+
+/* Make all fields in a row line up: labels same height, inputs same top edge */
+.device-fields .row > .field {
+  grid-template-rows: auto auto 1fr;   /* label | input | hint */
+  align-content: start;
+}
+
+/* Hint sits in its own row at the bottom, so an extra hint
+   doesn't push the input up — the input stays put. */
+.device-fields .field > .hint {
+  margin-top: 2px;
+  align-self: start;
+}
+
+/* Labels: fixed line-height so 1-line and 2-line labels match */
+.device-fields .field > label {
+  line-height: 1.2;
+  min-height: 1.2em;
+}
+
 .device-fields {
   --ink: #0B1C14;
   --ink-2: #5c6b66;
@@ -308,6 +352,7 @@
 .device-fields input[type=email],
 .device-fields input[type=password],
 .device-fields input[type=number],
+.device-fields input[type=date],
 .device-fields select {
   font: inherit;
   font-size: .82rem;
