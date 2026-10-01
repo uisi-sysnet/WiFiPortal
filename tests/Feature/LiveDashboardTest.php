@@ -109,6 +109,32 @@ class LiveDashboardTest extends TestCase
         $this->assertStringContainsString('2,234', $live->json('html'));
     }
 
+    public function test_busiest_barangays_lists_every_barangay_with_its_ap_clients(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $pob = \App\Models\Barangay::create(['name' => 'Poblacion']);
+        $sucat = \App\Models\Barangay::create(['name' => 'Sucat']);
+        \App\Models\Barangay::create(['name' => 'Tunasan']); // no access points
+        $ap = fn ($b, $status, $clients) => NetworkDevice::forceCreate([
+            'type' => 'ap', 'name' => 'ap-'.uniqid(), 'host' => '172.20.0.'.mt_rand(2, 250), 'snmp_version' => '2c',
+            'barangay_id' => $b->id, 'status' => $status, 'clients' => $clients,
+        ]);
+        $ap($pob, 'online', 40);
+        $ap($pob, 'online', 25);
+        $ap($pob, 'offline', 90);   // offline: its last count is stale, not added
+        $ap($sucat, 'online', 120);
+        $ap($sucat, 'online', null); // doesn't report
+
+        $page = $this->get('/dashboard')->assertOk();
+        $page->assertSee('Busiest barangays now');
+        $page->assertSeeInOrder(['Sucat', '120', 'Poblacion', '65', 'Tunasan', 'No access points']);
+        $page->assertSee('2 of 3 APs online', false);
+        $page->assertSee('2 of 2 APs online, 1 reporting', false);
+        $page->assertDontSee('Client counts are not collected');
+
+        $this->assertStringContainsString('Sucat', $this->getJson('/dashboard/live')->json('barangays'));
+    }
+
     public function test_dashboard_before_any_poll(): void
     {
         $this->actingAs(User::factory()->create());

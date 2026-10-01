@@ -7,27 +7,75 @@ use App\Models\HotspotGuest;
 use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
 use App\Models\NetworkDevice;
+use App\Models\Setting;
+use App\Services\Dashboard\UserHistory;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
 class DashboardController extends Controller
 {
+    /** Zoom used with a center from Settings when no zoom is given: about one barangay. */
+    public const DEFAULT_ZOOM = 15;
+
     /**
      * Command-center overview. The top row (users online, routers, switches,
-     * access points), the map and the access point grid are live; busiest
-     * sites, events and the 24-hour chart are still sample() data.
+     * access points), the map, the access point grid, busiest barangays and the
+     * users chart are live; the event log is still sample() data.
      */
-    public function index()
+    public function index(UserHistory $history)
     {
         $data = $this->sample();
+        $data['chart'] = $history->series('day');
         $data['kpis'] = $this->kpis();
+        $data['barangayClients'] = $this->barangayClients();
 
         return view('dashboard.index', [
             ...$data,
             'mapDevices' => $this->mapDevices(),
             'apGrid' => $this->apGrid(),
             'mapBarangays' => Barangay::query()->whereHas('devices')->orderBy('name')->pluck('name'),
-            'mapCenter' => config('devices.map'),
+            'mapCenter' => $this->mapCenter(),
         ]);
+    }
+
+    /** The map alone, filling the window (opened in a new tab from the dashboard). */
+    public function map()
+    {
+        return view('dashboard.map', [
+            'mapDevices' => $this->mapDevices(),
+            'mapBarangays' => Barangay::query()->whereHas('devices')->orderBy('name')->pluck('name'),
+            'mapCenter' => $this->mapCenter(),
+        ]);
+    }
+
+    /**
+     * Where the map opens. A center saved in Settings is used as is (fixed);
+     * without one the map frames every device, falling back to MAP_CENTER_*
+     * from .env when nothing is on the map yet.
+     */
+    private function mapCenter(): array
+    {
+        $lat = Setting::read('map.latitude');
+        $lng = Setting::read('map.longitude');
+        $fixed = $lat !== null && $lng !== null;
+
+        return [
+            'lat' => $fixed ? (float) $lat : (float) config('devices.map.lat'),
+            'lng' => $fixed ? (float) $lng : (float) config('devices.map.lng'),
+            'zoom' => (int) ($fixed ? Setting::read('map.zoom', self::DEFAULT_ZOOM) : config('devices.map.zoom')),
+            'fixed' => $fixed,
+            'carto_key' => config('devices.map.carto_key'),
+        ];
+    }
+
+    /** The "Users online" chart for one range: day, week, month or year. */
+    public function usersChart(Request $request, UserHistory $history)
+    {
+        $range = $request->validate(['range' => ['required', 'in:'.implode(',', array_keys(UserHistory::RANGES))]])['range'];
+
+        return response()
+            ->view('dashboard._chart', ['s' => $history->series($range)])
+            ->header('Cache-Control', 'no-store');
     }
 
     /** The top row, re-rendered for the page's refresh every few seconds. */
@@ -37,6 +85,7 @@ class DashboardController extends Controller
 
         return response()->json([
             'html' => view('dashboard._kpis', ['k' => $kpis])->render(),
+            'barangays' => view('dashboard._barangays', ['rows' => $this->barangayClients()])->render(),
             'routers' => $kpis['routers'],
             'users' => $kpis['users']['online'],
         ])->header('Cache-Control', 'no-store');
@@ -84,6 +133,40 @@ class DashboardController extends Controller
             'switches' => $device('switch'),
             'aps' => $device('ap'),
         ];
+    }
+
+    /**
+     * Every barangay with the clients connected to its access points, busiest first.
+     *   clients    sum over online APs that report a count (null when none do)
+     *   reporting  online APs that report a count
+     * Counts come from the APs' `clients` column, filled by the SNMP poll.
+     *
+     * @return array<int, array{name:string, aps:int, online:int, reporting:int, clients:?int}>
+     */
+    private function barangayClients(): array
+    {
+        $stats = NetworkDevice::query()
+            ->where('type', 'ap')->whereNotNull('barangay_id')
+            ->selectRaw("barangay_id, count(*) as aps,
+                sum(case when status = 'online' then 1 else 0 end) as online,
+                sum(case when status = 'online' and clients is not null then 1 else 0 end) as reporting,
+                sum(case when status = 'online' then clients else null end) as clients")
+            ->groupBy('barangay_id')->get()->keyBy('barangay_id');
+
+        return Barangay::query()->orderBy('name')->get(['id', 'name'])
+            ->map(function (Barangay $b) use ($stats) {
+                $s = $stats[$b->id] ?? null;
+
+                return [
+                    'name' => $b->name,
+                    'aps' => (int) ($s->aps ?? 0),
+                    'online' => (int) ($s->online ?? 0),
+                    'reporting' => (int) ($s->reporting ?? 0),
+                    'clients' => ($s->reporting ?? 0) > 0 ? (int) $s->clients : null,
+                ];
+            })
+            ->sortBy([fn ($a, $b) => ($b['clients'] ?? -1) <=> ($a['clients'] ?? -1), fn ($a, $b) => $a['name'] <=> $b['name']])
+            ->values()->all();
     }
 
     /** JSON for the map's once-a-minute refresh. */
@@ -195,38 +278,7 @@ class DashboardController extends Controller
 
     private function sample(): array
     {
-        mt_srand(20261001); // same sample on every load
-
-        $barangays = ['Alabang', 'Ayala Alabang', 'Bayanan', 'Buli', 'Cupang', 'Poblacion', 'Putatan', 'Sucat', 'Tunasan'];
-        $perBarangay = [18, 10, 16, 9, 15, 17, 16, 15, 12]; // 128 sites
-
-        $sites = [];
-        foreach ($barangays as $i => $brgy) {
-            $code = strtoupper(substr(str_replace(' ', '', $brgy), 0, 3));
-            for ($n = 1; $n <= $perBarangay[$i]; $n++) {
-                $roll = mt_rand(1, 100);
-                $status = $roll <= 3 ? 'offline' : ($roll <= 7 ? 'degraded' : 'online');
-                $sites[] = [
-                    'name' => sprintf('%s-%02d', $code, $n),
-                    'barangay' => $brgy,
-                    'status' => $status,
-                    'users' => $status === 'offline' ? 0 : mt_rand(40, 260),
-                ];
-            }
-        }
-
-        // Users online by hour: quiet overnight, lunch bump, evening peak.
-        $curve = [22, 14, 9, 7, 6, 9, 21, 42, 58, 63, 66, 71, 82, 76, 70, 68, 72, 81, 93, 100, 97, 88, 64, 40];
-        $hourly = array_map(fn ($p) => (int) round($p * 191.6 + mt_rand(-250, 250)), $curve);
-
-        $top = collect($sites)->sortByDesc('users')->take(10)->values()->all();
-
         return [
-            'sites' => $sites,
-            'barangays' => $barangays,
-            'hourly' => $hourly,
-            'currentHour' => 19,
-            'top' => $top,
             'events' => [
                 ['time' => '19:42', 'level' => 'down', 'text' => 'Router TUN-07 stopped answering'],
                 ['time' => '19:38', 'level' => 'warn', 'text' => 'AP POB-AP-114 dropped to 2.4 GHz only'],

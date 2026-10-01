@@ -5,6 +5,7 @@ use App\Jobs\PollRouters;
 use App\Models\MikrotikRouter;
 use App\Models\NetworkDevice;
 use App\Models\User;
+use App\Services\Dashboard\UserHistory;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
@@ -54,6 +55,15 @@ match ((int) config('hotspot.poll.seconds')) {
     60 => $routerPoll->everyMinute(),
     default => $routerPoll->everyThirtySeconds(),
 };
+
+// php artisan users:snapshot  (every 5 minutes: history for the "Users online" chart)
+Artisan::command('users:snapshot', function (UserHistory $history) {
+    $this->info($history->snapshot()
+        ? 'Saved users online.'
+        : 'Skipped: no router poll in the last 3 minutes (is routers:poll running?).');
+})->purpose('Save the total users online for the dashboard chart');
+
+Schedule::command('users:snapshot')->everyFiveMinutes();
 
 // php artisan hotspot:expire-credentials  (runs every 15 minutes through the scheduler)
 Artisan::command('hotspot:expire-credentials', function (\App\Services\Portal\GuestCredentials $credentials) {

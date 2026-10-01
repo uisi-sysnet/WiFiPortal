@@ -35,6 +35,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/map-data', [DashboardController::class, 'mapData'])->name('dashboard.map-data');
     Route::get('/dashboard/live', [DashboardController::class, 'live'])->name('dashboard.live');
+    Route::get('/dashboard/users-chart', [DashboardController::class, 'usersChart'])->name('dashboard.users-chart');
+    Route::get('/dashboard/map', [DashboardController::class, 'map'])->name('dashboard.map');
+    Route::put('/settings/map', [SettingsController::class, 'updateMap'])->name('settings.map');
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::post('/settings/barangays', [SettingsController::class, 'storeBarangay'])->name('barangays.store');
     Route::put('/settings/barangays/{barangay}', [SettingsController::class, 'updateBarangay'])->name('barangays.update');
