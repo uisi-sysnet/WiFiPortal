@@ -93,6 +93,19 @@ table.vlans td.mono{color:var(--ink-2)}
         <label for="location">Location <span class="hint">(optional)</span></label>
         <input id="location" name="location" type="text" value="{{ old('location') }}" maxlength="255" placeholder="Barangay hall, 2nd floor">
       </div>
+      <div class="row">
+        <div class="field">
+          <label for="latitude">Latitude <span class="hint">(optional)</span></label>
+          <input id="latitude" name="latitude" type="text" inputmode="decimal" class="mono" value="{{ old('latitude') }}" placeholder="14.4081" {!! $err('latitude') !!}>
+          @error('latitude')<p class="error" id="latitude-error">{{ $message }}</p>@enderror
+        </div>
+        <div class="field">
+          <label for="longitude">Longitude <span class="hint">(optional)</span></label>
+          <input id="longitude" name="longitude" type="text" inputmode="decimal" class="mono" value="{{ old('longitude') }}" placeholder="121.0415" {!! $err('longitude') !!}>
+          @error('longitude')<p class="error" id="longitude-error">{{ $message }}</p>@enderror
+        </div>
+      </div>
+      <p class="hint" style="margin:-8px 0 18px">Puts the router on the dashboard map, with lines to the switches and access points connected to it.</p>
     </fieldset>
 
     <fieldset>

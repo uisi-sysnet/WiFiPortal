@@ -76,6 +76,8 @@ a{color:var(--neon)}
 .panel-head p{margin:0;font-size:.85rem;color:var(--muted)}
 
 /* KPI readouts: notched like instrument plates */
+.kpi-row{display:contents}
+.kpi .as-of{margin-top:-8px;font-size:.8rem}
 .kpi{
   grid-column:span 3;position:relative;padding:18px 20px 20px;border:0;border-radius:0;
   background:linear-gradient(160deg,#0D2236,#07131F 60%);
@@ -123,6 +125,19 @@ a{color:var(--neon)}
 /* Pins: circle = access point, square = switch; colour = status */
 .pin{border-radius:50%;background:var(--neon);box-shadow:0 0 0 2px #030A12,0 0 10px 2px rgba(44,213,255,.75)}
 .pin.pin-switch{border-radius:2px}
+.pin.pin-router{border-radius:3px;transform:rotate(45deg)}
+/* Link arcs: halo + line + light flowing from the uplink outwards */
+.leaflet-overlay-pane path.link-halo{stroke:#2CD5FF;stroke-opacity:.12;fill:none}
+.leaflet-overlay-pane path.link-halo.off{stroke:#FF5470;stroke-opacity:.14}
+.leaflet-overlay-pane path.link-halo.unk{stroke:#6F8FA3;stroke-opacity:.08}
+.leaflet-overlay-pane path.link{stroke:#2CD5FF;stroke-opacity:.85;fill:none;filter:drop-shadow(0 0 2px rgba(44,213,255,.9))}
+.leaflet-overlay-pane path.link-hit{fill:none;stroke:#000}
+.leaflet-overlay-pane path.link.off{stroke:#FF5470;stroke-opacity:.95;filter:drop-shadow(0 0 3px rgba(255,84,112,.9))}
+.leaflet-overlay-pane path.link.unk{stroke:#6F8FA3;stroke-opacity:.6;filter:none}
+.leaflet-overlay-pane path.link-flow{stroke:#E8FBFF;stroke-linecap:round;fill:none;filter:drop-shadow(0 0 3px #2CD5FF);animation:link-flow 1.6s linear infinite}
+.leaflet-overlay-pane path.link-flow.trunk{animation-duration:1.1s}
+@keyframes link-flow{to{stroke-dashoffset:-23.5}}
+.legend-line{display:inline-block;width:18px;height:9px;border-top:1px solid var(--neon);border-radius:50% 50% 0 0;margin-right:2px;vertical-align:-2px;filter:drop-shadow(0 0 3px rgba(44,213,255,.9))}
 .pin.unknown{background:#6F8FA3;box-shadow:0 0 0 2px #030A12}
 .pin.offline{background:var(--down);box-shadow:0 0 0 2px #030A12,0 0 10px 2px rgba(255,84,112,.8)}
 .pin.offline::after{content:"";position:absolute;inset:-6px;border-radius:inherit;border:2px solid var(--down);animation:ping 1.8s ease-out infinite}
@@ -239,29 +254,13 @@ a{color:var(--neon)}
   .kpi,.events,.top{grid-column:span 12}
   .grid-row{grid-template-columns:1fr}
 }
-@media (prefers-reduced-motion:reduce){.cell{transition:none}.grid::after{animation:none;display:none}.pin.offline::after{animation:none;display:none}}
+@media (prefers-reduced-motion:reduce){.cell{transition:none}.grid::after{animation:none;display:none}.pin.offline::after{animation:none;display:none}.leaflet-overlay-pane path.link-flow{animation:none;display:none}}
 </style>
 </head>
 <body>
 
 @php
   $k = $kpis;
-  // 40-segment bar: lit = online share; at least one red segment whenever anything is down
-  // 40 lights: lit = online, dim = not checked yet, red = offline.
-  // Any non-zero group gets at least one light so it never disappears.
-  $leds = function (int $online, int $offline, int $total, int $count = 40) {
-      if ($total === 0) {
-          return [0, 0, $count]; // nothing added yet: all dim
-      }
-      $on = $online ? max(1, (int) round($online / $total * $count)) : 0;
-      $off = $offline ? max(1, (int) round($offline / $total * $count)) : 0;
-      $idle = $total - $online - $offline ? max(1, $count - $on - $off) : 0;
-      $on = $count - $off - $idle; // absorb rounding so the bar is always full width
-      return [max(0, $on), $off, $idle];
-  };
-  // Online share: "96.9%", "100%", or a dash when nothing is added yet
-  $pct = fn (int $online, int $total) => $total ? rtrim(rtrim(number_format($online / $total * 100, 1), '0'), '.').'%' : '–';
-  $pctClass = fn (int $online, int $total) => ! $total ? 'none' : ($online / $total >= .95 ? 'good' : ($online / $total >= .8 ? 'fair' : 'poor'));
   $maxSiteUsers = max(1, collect($sites)->max('users')); // busiest-sites panel (sample)
 
   // Access points by barangay (live)
@@ -277,10 +276,6 @@ a{color:var(--neon)}
   $line = collect($hourly)->map(fn ($v, $i) => ($i ? 'L' : 'M').round($x($i), 1).','.round($y($v), 1))->implode(' ');
   $area = $line.' L'.round($x(23), 1).','.($H - $B).' L'.$L.','.($H - $B).' Z';
 
-  // Sparkline for the users readout
-  $sx = fn ($i) => $i * 200 / 23;
-  $sy = fn ($v) => 38 - 34 * $v / max($hourly);
-  $spark = collect($hourly)->map(fn ($v, $i) => ($i ? 'L' : 'M').round($sx($i), 1).','.round($sy($v), 1))->implode(' ');
 @endphp
 
 <header class="bar">
@@ -295,74 +290,34 @@ a{color:var(--neon)}
     @include('partials.devices-menu')
     <a href="{{ route('splash.edit') }}">Captive portal</a>
   </nav>
-  <p class="health" role="status"><b>{{ $k['routers']['online'] }} of {{ $k['routers']['total'] }}</b> routers online</p>
+  <p class="health" role="status" id="health"><b>{{ $k['routers']['online'] }} of {{ $k['routers']['total'] }}</b> routers online</p>
   <div class="clock"><time id="clock">--:--:--</time><span id="date">Philippine time</span></div>
   @include('partials.account-menu')
 </header>
 
-<p class="sample">Access points, switches, the map and the access point grid are live. Routers, users, busiest sites, events and the chart are still sample data.</p>
+<p class="sample">Users online, routers, switches, access points, the map and the access point grid are live. Busiest sites, events and the 24-hour chart are still sample data.</p>
 
 <main class="deck">
 
-  {{-- ---------- Readouts ---------- --}}
-  @foreach ([
-      ['Routers', $k['routers'], 'online'],
-      ['Access points', $k['aps'], 'online'],
-      ['Switches', $k['switches'], 'online'],
-  ] as $i => [$label, $d, $word])
-    @if ($i === 1)
-      {{-- Users sits second: it is the number people look for first after routers --}}
-      <section class="panel kpi" aria-labelledby="kpi-users">
-        <h2 id="kpi-users">Users online</h2>
-        <p class="value">{{ number_format($k['users']['online']) }}</p>
-        <p class="sub"><b>{{ number_format($k['users']['today']) }}</b> new today, peak {{ number_format($k['users']['peak']) }}</p>
-        <svg class="spark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
-          <path d="{{ $spark }} L200,40 L0,40 Z" fill="rgba(44,213,255,.12)"/>
-          <path d="{{ $spark }}" fill="none" stroke="#2CD5FF" stroke-width="1.6" vector-effect="non-scaling-stroke" style="filter:drop-shadow(0 0 4px rgba(44,213,255,.8))"/>
-        </svg>
-      </section>
-    @endif
-    @php
-      $down = $d['offline'] ?? ($d['total'] - $d['online']);
-      $unchecked = $d['total'] - $d['online'] - $down;
-      [$on, $off, $idle] = $leds($d['online'], $down, $d['total']);
-    @endphp
-    <section class="panel kpi" aria-labelledby="kpi-{{ $i }}">
-      <h2 id="kpi-{{ $i }}">{{ $label }}</h2>
-      <div class="value-row">
-        <p class="value">{{ number_format($d['total']) }}</p>
-        {{-- Dash until at least one device has actually been checked --}}
-        @php $base = ($d['online'] + $down) > 0 ? $d['total'] : 0; @endphp
-        <p class="pct {{ $pctClass($d['online'], $base) }}">{{ $pct($d['online'], $base) }}<small>online</small></p>
-      </div>
-      @php
-        // Online and offline are always shown (even when 0); "not checked" only when there are some.
-        $parts = [
-            '<b>'.number_format($d['online']).'</b> '.e($word),
-            '<span class="'.($down ? 'down' : 'unk').'">'.number_format($down).' offline</span>',
-        ];
-        if ($unchecked) { $parts[] = '<span class="unk">'.number_format($unchecked).' not checked</span>'; }
-      @endphp
-      <p class="sub">{!! implode(', ', $parts) !!}</p>
-      <div class="leds" role="img" aria-label="{{ $d['total'] ? round($d['online'] / $d['total'] * 100, 1).' percent online' : 'none added yet' }}">
-        @for ($s = 0; $s < $on; $s++)<i class="on"></i>@endfor
-        @for ($s = 0; $s < $idle; $s++)<i></i>@endfor
-        @for ($s = 0; $s < $off; $s++)<i class="off"></i>@endfor
-      </div>
-    </section>
-  @endforeach
+  {{-- ---------- Readouts (live; refreshed by the script at the bottom) ---------- --}}
+  <div id="kpi-row" class="kpi-row" aria-live="off">
+    @include('dashboard._kpis', ['k' => $k])
+  </div>
 
   {{-- ---------- Device map (live) ---------- --}}
   @php
     $mapAps = collect($mapDevices)->where('type', 'ap')->count();
     $mapSw = collect($mapDevices)->where('type', 'switch')->count();
+    $mapRouters = collect($mapDevices)->where('type', 'router')->count();
   @endphp
   <section class="panel mapp" aria-labelledby="map-title">
     <div class="panel-head">
-      <h2 id="map-title">Access points and switches</h2>
+      <h2 id="map-title">Access points, switches and routers</h2>
       <div class="map-tools">
         <label><input type="checkbox" id="show-ap" checked><span class="legend-pin pin" aria-hidden="true"></span>Access points</label>
         <label><input type="checkbox" id="show-switch" checked><span class="legend-pin pin pin-switch" aria-hidden="true"></span>Switches</label>
+        <label><input type="checkbox" id="show-router" checked><span class="legend-pin pin pin-router" aria-hidden="true"></span>Routers</label>
+        <label><input type="checkbox" id="show-links" checked><span class="legend-line" aria-hidden="true"></span>Links</label>
         <label>Status
           <select id="map-status">
             <option value="all">All</option>
@@ -389,8 +344,8 @@ a{color:var(--neon)}
       </div>
     </div>
     <div class="map-foot">
-      <p id="map-summary" aria-live="polite"><b>{{ $mapAps }}</b> access points and <b>{{ $mapSw }}</b> switches on the map.</p>
-      <p>Circle is an access point, square is a switch. Red and pulsing means offline. Refreshes every minute<span id="map-updated"></span>.</p>
+      <p id="map-summary" aria-live="polite"><b>{{ $mapAps }}</b> access points, <b>{{ $mapSw }}</b> switches and <b>{{ $mapRouters }}</b> routers on the map.</p>
+      <p>Circle is an access point, square a switch, diamond a router. Glowing arcs show what each device is plugged into, with light flowing from the uplink; red and dashed when either end is offline. Red and pulsing means offline. Refreshes every minute<span id="map-updated"></span>.</p>
     </div>
   </section>
 
@@ -581,6 +536,33 @@ a{color:var(--neon)}
 })();
 </script>
 
+<script>
+(function () {
+  // Top row: users online and routers come from routers:poll (every 30 s by default),
+  // switches and access points from devices:poll. Re-fetched every 10 seconds while the tab is visible.
+  const row = document.getElementById('kpi-row'), health = document.getElementById('health');
+  const url = @json(route('dashboard.live'));
+  let busy = false;
+  async function refresh() {
+    if (busy || document.hidden) return;
+    busy = true;
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      row.innerHTML = data.html;
+      health.innerHTML = '<b>' + data.routers.online + ' of ' + data.routers.total + '</b> routers online';
+    } catch (e) {
+      // offline or server restarting: keep the last numbers
+    } finally {
+      busy = false;
+    }
+  }
+  setInterval(refresh, 10000);
+  document.addEventListener('visibilitychange', refresh);
+})();
+</script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 <script>
@@ -628,39 +610,99 @@ a{color:var(--neon)}
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const statusText = { online: 'Online', offline: 'Offline', unknown: 'Not checked yet' };
 
-  function popup(d) {
+  const typeText = { ap: 'Access point', switch: 'Switch', router: 'Router' };
+  const byKey = () => Object.fromEntries(devices.map((d) => [d.key, d]));
+
+  // What a device is plugged into; for one that isn't on the map, says so.
+  function uplinkText(d, index) {
+    if (!d.uplink) return null;
+    const up = index[d.uplink];
+    return up ? esc(up.name) + ' (' + typeText[up.type].toLowerCase() + ')' : 'a ' + d.uplink.split(':')[0] + ' without a map position';
+  }
+
+  function popup(d, index) {
+    const up = uplinkText(d, index);
+    const down = devices.filter((x) => x.uplink === d.key).length;
     return '<h3>' + esc(d.name) + '</h3>'
       + '<span class="pop-status ' + esc(d.status) + '">' + statusText[d.status] + '</span>'
       + (d.status === 'offline' && d.seen ? ', last seen ' + esc(d.seen) : '')
       + '<dl>'
-      + '<dt>Type</dt><dd>' + (d.type === 'ap' ? 'Access point' : 'Switch') + (d.model ? ', ' + esc(d.model) : '') + '</dd>'
+      + '<dt>Type</dt><dd>' + typeText[d.type] + (d.model ? ', ' + esc(d.model) : '') + '</dd>'
       + '<dt>IP</dt><dd>' + esc(d.ip) + '</dd>'
-      + '<dt>Location</dt><dd>' + esc(d.barangay || 'No barangay') + (d.landmark ? '<br>' + esc(d.landmark) : '') + '</dd>'
-      + '</dl><a href="' + esc(d.edit) + '">Edit device</a>';
+      + (d.type === 'router' ? '<dt>Users online</dt><dd>' + (d.users === null ? 'Not known' : esc(d.users)) + '</dd>' : '')
+      + (up ? '<dt>Connected to</dt><dd>' + up + '</dd>' : '')
+      + (down ? '<dt>Plugged in</dt><dd>' + down + ' device' + (down === 1 ? '' : 's') + '</dd>' : '')
+      + '<dt>Location</dt><dd>' + (d.type === 'router' ? '' : esc(d.barangay || 'No barangay') + (d.landmark ? '<br>' : '')) + esc(d.landmark || '') + '</dd>'
+      + '</dl><a href="' + esc(d.edit) + '">' + (d.type === 'router' ? 'Open router' : 'Edit device') + '</a>';
   }
 
   function visible() {
-    const showAp = document.getElementById('show-ap').checked;
-    const showSw = document.getElementById('show-switch').checked;
+    const show = {
+      ap: document.getElementById('show-ap').checked,
+      switch: document.getElementById('show-switch').checked,
+      router: document.getElementById('show-router').checked,
+    };
     const status = document.getElementById('map-status').value;
-    return devices.filter((d) =>
-      (d.type === 'ap' ? showAp : showSw) && (status === 'all' || d.status === status));
+    return devices.filter((d) => show[d.type] && (status === 'all' || d.status === status));
+  }
+
+  // Link lines sit under the pins: curved, glowing arcs from each uplink to the device,
+  // with light pulses flowing outward. Red and dashed when either end is offline.
+  const links = L.layerGroup().addTo(map);
+
+  // Points along a gentle arc from a to b, bowed to one side (like flight paths).
+  function arc(a, b, bow) {
+    const [x1, y1] = [a.lng, a.lat], [x2, y2] = [b.lng, b.lat];
+    const dx = x2 - x1, dy = y2 - y1;
+    const cx = (x1 + x2) / 2 - dy * bow, cy = (y1 + y2) / 2 + dx * bow; // control point, off to the side
+    const pts = [];
+    for (let i = 0; i <= 32; i++) {
+      const t = i / 32, u = 1 - t;
+      pts.push([u * u * y1 + 2 * u * t * cy + t * t * y2, u * u * x1 + 2 * u * t * cx + t * t * x2]);
+    }
+    return pts;
+  }
+
+  function drawLinks(list, index) {
+    links.clearLayers();
+    if (!document.getElementById('show-links').checked) return;
+    const shown = new Set(list.map((d) => d.key));
+    list.forEach((d) => {
+      const up = d.uplink && index[d.uplink];
+      if (!up || !shown.has(up.key)) return;
+      const state = d.status === 'offline' || up.status === 'offline' ? 'off'
+        : d.status === 'unknown' || up.status === 'unknown' ? 'unk' : 'ok';
+      const trunk = d.type !== 'ap'; // switch and router uplinks are drawn heavier
+      const pts = arc(up, d, d.type === 'ap' ? 0.18 : 0.24);
+      const tip = esc(d.name) + ' to ' + esc(up.name) + (state === 'off' ? ' (offline)' : '');
+
+      // Soft halo, the line itself, then the moving light on top.
+      // Thin lines: a faint halo, a hairline, and small moving sparks. A wide invisible
+      // line on top keeps the hover label easy to reach.
+      L.polyline(pts, { className: 'link-halo ' + state, weight: trunk ? 3 : 2, interactive: false }).addTo(links);
+      L.polyline(pts, { className: 'link ' + state, weight: trunk ? 1 : 0.7, dashArray: state === 'off' ? '4 4' : null, interactive: false }).addTo(links);
+      if (state === 'ok') {
+        L.polyline(pts, { className: 'link-flow' + (trunk ? ' trunk' : ''), weight: trunk ? 1.6 : 1.2, dashArray: '1.5 22', interactive: false }).addTo(links);
+      }
+      L.polyline(pts, { className: 'link-hit', weight: 10, opacity: 0 }).bindTooltip(tip, { sticky: true }).addTo(links);
+    });
   }
 
   function render() {
     const list = visible();
+    const index = byKey();
     cluster.clearLayers();
     cluster.addLayers(list.map((d) => L.marker([d.lat, d.lng], {
-      icon: L.divIcon({ className: 'pin pin-' + d.type + ' ' + d.status, iconSize: d.type === 'ap' ? [14, 14] : [13, 13] }),
+      icon: L.divIcon({ className: 'pin pin-' + d.type + ' ' + d.status, iconSize: d.type === 'ap' ? [14, 14] : d.type === 'router' ? [14, 14] : [13, 13] }),
       title: d.name + ', ' + statusText[d.status],
       dev: d,
-    }).bindPopup(popup(d))));
+    }).bindPopup(popup(d, index))));
+    drawLinks(list, index);
 
-    const aps = devices.filter((d) => d.type === 'ap').length;
-    const sw = devices.length - aps;
+    const count = (t) => devices.filter((d) => d.type === t).length;
     const off = devices.filter((d) => d.status === 'offline').length;
     document.getElementById('map-summary').innerHTML =
-      '<b>' + aps + '</b> access points and <b>' + sw + '</b> switches on the map'
+      '<b>' + count('ap') + '</b> access points, <b>' + count('switch') + '</b> switches and <b>' + count('router') + '</b> routers on the map'
       + (off ? ', <b class="off">' + off + ' offline</b>' : '')
       + (list.length !== devices.length ? '. Showing ' + list.length + '.' : '.');
     document.getElementById('map-empty').hidden = devices.length > 0;
@@ -671,7 +713,7 @@ a{color:var(--neon)}
     map.fitBounds(L.latLngBounds(list.map((d) => [d.lat, d.lng])), { padding: [40, 40], maxZoom: 17 });
   }
 
-  ['show-ap', 'show-switch', 'map-status'].forEach((id) => document.getElementById(id).addEventListener('change', render));
+  ['show-ap', 'show-switch', 'show-router', 'show-links', 'map-status'].forEach((id) => document.getElementById(id).addEventListener('change', render));
   document.getElementById('map-barangay').addEventListener('change', (e) => {
     fit(e.target.value ? devices.filter((d) => d.barangay === e.target.value) : devices);
   });

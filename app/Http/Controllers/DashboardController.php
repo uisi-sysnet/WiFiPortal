@@ -3,31 +3,23 @@
 namespace App\Http\Controllers;
 
 use App\Models\Barangay;
+use App\Models\HotspotGuest;
+use App\Models\HotspotNetwork;
+use App\Models\MikrotikRouter;
 use App\Models\NetworkDevice;
+use Illuminate\Support\Carbon;
 
 class DashboardController extends Controller
 {
     /**
-     * Command-center overview. Access points, switches and the map are live;
-     * routers, users, sites and events are still sample() data.
+     * Command-center overview. The top row (users online, routers, switches,
+     * access points), the map and the access point grid are live; busiest
+     * sites, events and the 24-hour chart are still sample() data.
      */
     public function index()
     {
         $data = $this->sample();
-
-        // Live device counts replace the sample ones.
-        $counts = NetworkDevice::query()
-            ->selectRaw("type, count(*) as total,
-                sum(case when status = 'online' then 1 else 0 end) as online,
-                sum(case when status = 'offline' then 1 else 0 end) as offline")
-            ->groupBy('type')->get()->keyBy('type');
-        foreach (['ap' => 'aps', 'switch' => 'switches'] as $type => $key) {
-            $data['kpis'][$key] = [
-                'total' => (int) ($counts[$type]->total ?? 0),
-                'online' => (int) ($counts[$type]->online ?? 0),
-                'offline' => (int) ($counts[$type]->offline ?? 0),
-            ];
-        }
+        $data['kpis'] = $this->kpis();
 
         return view('dashboard.index', [
             ...$data,
@@ -36,6 +28,62 @@ class DashboardController extends Controller
             'mapBarangays' => Barangay::query()->whereHas('devices')->orderBy('name')->pluck('name'),
             'mapCenter' => config('devices.map'),
         ]);
+    }
+
+    /** The top row, re-rendered for the page's refresh every few seconds. */
+    public function live()
+    {
+        $kpis = $this->kpis();
+
+        return response()->json([
+            'html' => view('dashboard._kpis', ['k' => $kpis])->render(),
+            'routers' => $kpis['routers'],
+            'users' => $kpis['users']['online'],
+        ])->header('Cache-Control', 'no-store');
+    }
+
+    /**
+     * Live numbers for the top row.
+     *   users     hotspot users logged in, summed over every router that answers (routers:poll)
+     *   routers   answering / not answering / not checked yet
+     *   switches, aps  from SNMP (devices:poll)
+     */
+    private function kpis(): array
+    {
+        $routers = MikrotikRouter::query()
+            ->selectRaw("count(*) as total,
+                sum(case when link_status = 'online' then 1 else 0 end) as online,
+                sum(case when link_status = 'offline' then 1 else 0 end) as offline,
+                sum(case when link_status = 'online' then coalesce(active_users, 0) else 0 end) as users,
+                max(last_polled_at) as polled")
+            ->first();
+
+        $devices = NetworkDevice::query()
+            ->selectRaw("type, count(*) as total,
+                sum(case when status = 'online' then 1 else 0 end) as online,
+                sum(case when status = 'offline' then 1 else 0 end) as offline")
+            ->groupBy('type')->get()->keyBy('type');
+        $device = fn (string $type) => [
+            'total' => (int) ($devices[$type]->total ?? 0),
+            'online' => (int) ($devices[$type]->online ?? 0),
+            'offline' => (int) ($devices[$type]->offline ?? 0),
+        ];
+
+        return [
+            'users' => [
+                'online' => (int) $routers->users,
+                'networks' => HotspotNetwork::query()->where('active_users', '>', 0)->count(),
+                'today' => HotspotGuest::query()->where('created_at', '>=', today())->count(),
+                'updated' => $routers->polled ? Carbon::parse($routers->polled) : null,
+            ],
+            'routers' => [
+                'total' => (int) $routers->total,
+                'online' => (int) $routers->online,
+                'offline' => (int) $routers->offline,
+            ],
+            'switches' => $device('switch'),
+            'aps' => $device('ap'),
+        ];
     }
 
     /** JSON for the map's once-a-minute refresh. */
@@ -84,24 +132,31 @@ class DashboardController extends Controller
             ->all();
     }
 
-    /** Every AP and switch that has a map position, in the shape the map script reads. */
+    /**
+     * Everything with a map position, in the shape the map script reads:
+     * access points, switches and routers. `key` is "ap:5", "switch:3" or
+     * "router:2"; `uplink` is the key of what the device is plugged into
+     * (a switch, or a router), drawn as a line when both ends are on the map.
+     */
     private function mapDevices(): array
     {
-        return NetworkDevice::query()
+        $devices = NetworkDevice::query()
             ->whereNotNull('network_devices.latitude')
             ->whereNotNull('network_devices.longitude')
             ->leftJoin('barangays', 'barangays.id', '=', 'network_devices.barangay_id')
             ->orderBy('network_devices.name')
             ->get([
-                'network_devices.id', 'network_devices.type', 'network_devices.name', 'network_devices.model',
+                'network_devices.id', 'network_devices.type', 'network_devices.name', 'network_devices.brand', 'network_devices.model',
                 'network_devices.host', 'network_devices.status', 'network_devices.latitude', 'network_devices.longitude',
-                'network_devices.location', 'network_devices.last_seen_at', 'barangays.name as barangay_name',
+                'network_devices.location', 'network_devices.last_seen_at', 'network_devices.uplink_device_id',
+                'network_devices.mikrotik_router_id', 'barangays.name as barangay_name',
             ])
             ->map(fn (NetworkDevice $d) => [
+                'key' => $d->type.':'.$d->id,
                 'id' => $d->id,
                 'type' => $d->type,
                 'name' => $d->name,
-                'model' => $d->model,
+                'model' => trim($d->brand.' '.$d->model) ?: null,
                 'ip' => $d->host,
                 'status' => $d->status,
                 'lat' => (float) $d->latitude,
@@ -109,9 +164,33 @@ class DashboardController extends Controller
                 'barangay' => $d->barangay_name,
                 'landmark' => $d->location,
                 'seen' => $d->last_seen_at?->diffForHumans(),
+                'uplink' => $d->uplinkValue() ?: null,
                 'edit' => route('devices.edit', $d->id),
-            ])
-            ->all();
+            ]);
+
+        $routers = MikrotikRouter::query()
+            ->whereNotNull('latitude')->whereNotNull('longitude')
+            ->orderBy('name')
+            ->get(['id', 'name', 'location', 'host', 'board_name', 'link_status', 'active_users', 'latitude', 'longitude', 'last_seen_at'])
+            ->map(fn (MikrotikRouter $r) => [
+                'key' => 'router:'.$r->id,
+                'id' => $r->id,
+                'type' => 'router',
+                'name' => $r->name,
+                'model' => $r->board_name,
+                'ip' => $r->host,
+                'status' => $r->link_status,
+                'users' => $r->active_users,
+                'lat' => (float) $r->latitude,
+                'lng' => (float) $r->longitude,
+                'barangay' => null,
+                'landmark' => $r->location,
+                'seen' => $r->last_seen_at?->diffForHumans(),
+                'uplink' => null,
+                'edit' => route('routers.show', $r->id),
+            ]);
+
+        return [...$routers->all(), ...$devices->all()];
     }
 
     private function sample(): array
@@ -143,12 +222,6 @@ class DashboardController extends Controller
         $top = collect($sites)->sortByDesc('users')->take(10)->values()->all();
 
         return [
-            'kpis' => [
-                'routers' => ['total' => 128, 'online' => 124],
-                'users' => ['online' => 18452, 'today' => 3217, 'peak' => max($hourly)],
-                'aps' => ['total' => 1536, 'online' => 1498],
-                'switches' => ['total' => 312, 'online' => 309],
-            ],
             'sites' => $sites,
             'barangays' => $barangays,
             'hourly' => $hourly,

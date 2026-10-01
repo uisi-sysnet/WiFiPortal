@@ -170,7 +170,7 @@ class HotspotProvisioner
         }
     }
 
-    private function connect(MikrotikRouter $router): void
+    private function connect(MikrotikRouter $router, ?int $timeout = null): void
     {
         $this->client = $this->makeClient([
             'host' => $router->host,
@@ -178,9 +178,36 @@ class HotspotProvisioner
             'pass' => $router->password,
             'port' => $router->api_port,
             'ssl' => $router->use_ssl,
-            'timeout' => config('hotspot.api.timeout'),
+            'timeout' => $timeout ?? config('hotspot.api.timeout'),
             'attempts' => 1,
         ]);
+    }
+
+    /**
+     * Hotspot users logged in right now: the router's total, and per hotspot
+     * server name. Counted on the router (count-only), so it stays cheap with
+     * thousands of sessions. Throws if the router doesn't answer.
+     *
+     * @param  string[]  $servers  hotspot server names to count separately
+     * @return array{total:int, servers:array<string,int>}
+     */
+    public function activeUsers(MikrotikRouter $router, array $servers = []): array
+    {
+        $this->connect($router, (int) config('hotspot.poll.timeout'));
+
+        $count = function (?string $server) {
+            $query = (new Query('/ip/hotspot/active/print'))->add('=count-only=');
+            if ($server !== null) {
+                $query->where('server', $server);
+            }
+
+            return (int) ($this->run($query, 'Counting hotspot users:')['after']['ret'] ?? 0);
+        };
+
+        return [
+            'total' => $count(null),
+            'servers' => array_combine($servers, array_map($count, $servers)),
+        ];
     }
 
     /** Separate so tests can swap in a fake router. */

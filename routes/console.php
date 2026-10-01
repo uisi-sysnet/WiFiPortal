@@ -1,6 +1,8 @@
 <?php
 
 use App\Jobs\PollNetworkDevices;
+use App\Jobs\PollRouters;
+use App\Models\MikrotikRouter;
 use App\Models\NetworkDevice;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
@@ -35,6 +37,23 @@ Artisan::command('devices:poll', function () {
 })->purpose('Check every access point and switch over SNMP');
 
 Schedule::command('devices:poll')->everyMinute()->withoutOverlapping();
+
+// php artisan routers:poll  (every 30 seconds through the scheduler; ROUTER_POLL_SECONDS)
+Artisan::command('routers:poll', function () {
+    $batches = 0;
+    MikrotikRouter::query()->select('id')->chunkById(max(1, (int) config('hotspot.poll.batch')), function ($chunk) use (&$batches) {
+        PollRouters::dispatch($chunk->pluck('id')->all());
+        $batches++;
+    });
+    $this->info("Queued {$batches} batch(es) of router checks.");
+})->purpose('Check which routers answer and count hotspot users online');
+
+$routerPoll = Schedule::command('routers:poll')->withoutOverlapping();
+match ((int) config('hotspot.poll.seconds')) {
+    15 => $routerPoll->everyFifteenSeconds(),
+    60 => $routerPoll->everyMinute(),
+    default => $routerPoll->everyThirtySeconds(),
+};
 
 // php artisan hotspot:expire-credentials  (runs every 15 minutes through the scheduler)
 Artisan::command('hotspot:expire-credentials', function (\App\Services\Portal\GuestCredentials $credentials) {

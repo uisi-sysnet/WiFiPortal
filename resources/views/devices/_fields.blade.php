@@ -1,6 +1,6 @@
 {{--
   Device fields shared by the Add pop-up (devices/index) and the Edit page (devices/form).
-  Needs: $device, $type, $info, $editing, $routers, $barangays, $formId
+  Needs: $device, $type, $info, $editing, $routers, $barangays, $formId, $uplinkSwitches, $uplinkExclude, $brands (optional)
 --}}
 @php
   $err = fn ($f) => $errors->has($f) ? 'aria-invalid=true aria-describedby='.$f.'-error' : '';
@@ -19,6 +19,15 @@
           <input id="name" name="name" type="text" maxlength="64" value="{{ $val('name') }}" required
                  placeholder="{{ $type === 'ap' ? 'POB-AP-01' : 'POB-SW-01' }}" {!! $err('name') !!}>
           @error('name')<p class="error" id="name-error">{{ $message }}</p>@enderror
+        </div>
+        <div class="field">
+          <label for="brand">Brand <span class="hint">(optional)</span></label>
+          <input id="brand" name="brand" type="text" maxlength="64" value="{{ $val('brand') }}" list="brand-list-{{ $formId }}" autocomplete="off"
+                 placeholder="{{ $type === 'ap' ? 'Ubiquiti' : 'MikroTik' }}" {!! $err('brand') !!}>
+          <datalist id="brand-list-{{ $formId }}">
+            @foreach ($brands ?? [] as $b)<option value="{{ $b }}">@endforeach
+          </datalist>
+          @error('brand')<p class="error" id="brand-error">{{ $message }}</p>@enderror
         </div>
         <div class="field">
           <label for="model">Model <span class="hint">(optional)</span></label>
@@ -70,14 +79,41 @@
           <label for="location">Landmark <span class="hint">(optional)</span></label>
           <input id="location" name="location" type="text" maxlength="255" value="{{ $val('location') }}" placeholder="Covered court, pole 3">
         </div>
+        @php
+          // "switch:12" / "router:3"; shown as a line on the dashboard map
+          $uplink = (string) old('uplink', $device->uplinkValue());
+          $switchOptions = $uplinkSwitches->reject(fn ($s) => in_array($s->id, $uplinkExclude, true));
+          $routerGroup = $type === 'ap' ? 'Directly to a router' : 'Router (direct)';
+          $switchGroup = $type === 'ap' ? 'Switches' : 'Switch (cascaded)';
+        @endphp
         <div class="field">
-          <label for="mikrotik_router_id">Site router <span class="hint">(optional)</span></label>
-          <select id="mikrotik_router_id" name="mikrotik_router_id">
-            <option value="">None</option>
-            @foreach ($routers as $r)
-              <option value="{{ $r->id }}" @selected((string) $val('mikrotik_router_id') === (string) $r->id)>{{ $r->name }}{{ $r->location ? ', '.$r->location : '' }}</option>
-            @endforeach
+          <label for="uplink">Connected to <span class="hint">(optional)</span></label>
+          <select id="uplink" name="uplink" {!! $err('uplink') !!}>
+            <option value="">Not set</option>
+            @if ($type === 'switch')
+              <optgroup label="{{ $routerGroup }}">
+                @foreach ($routers as $r)
+                  <option value="router:{{ $r->id }}" @selected($uplink === 'router:'.$r->id)>{{ $r->name }}{{ $r->location ? ', '.$r->location : '' }}</option>
+                @endforeach
+              </optgroup>
+            @endif
+            <optgroup label="{{ $switchGroup }}">
+              @forelse ($switchOptions as $s)
+                <option value="switch:{{ $s->id }}" @selected($uplink === 'switch:'.$s->id)>{{ $s->name }}{{ $s->location ? ', '.$s->location : '' }}</option>
+              @empty
+                <option value="" disabled>No switches added yet</option>
+              @endforelse
+            </optgroup>
+            @if ($type === 'ap')
+              <optgroup label="{{ $routerGroup }}">
+                @foreach ($routers as $r)
+                  <option value="router:{{ $r->id }}" @selected($uplink === 'router:'.$r->id)>{{ $r->name }}{{ $r->location ? ', '.$r->location : '' }}</option>
+                @endforeach
+              </optgroup>
+            @endif
           </select>
+          <p class="hint">{{ $type === 'ap' ? 'The switch this access point is plugged into.' : 'The router, or the switch it is cascaded from.' }} Drawn as a line on the dashboard map.</p>
+          @error('uplink')<p class="error" id="uplink-error">{{ $message }}</p>@enderror
         </div>
       </div>
       <div class="row">

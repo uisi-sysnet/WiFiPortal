@@ -236,6 +236,21 @@ No single MikroTik can hold 500,000 hotspot sessions, so capacity comes from the
 Change `HOTSPOT_SITE_PREFIX` (e.g. `/21` for smaller sites) **before** adding routers;
 changing it later would overlap existing blocks.
 
+## Dashboard
+
+The top row is live: **Users online**, **Routers**, **Switches**, **Access points**.
+
+- `routers:poll` (scheduler, every `ROUTER_POLL_SECONDS`, default 30) asks each router's API
+  for the number of logged-in hotspot users (`/ip/hotspot/active`, counted on the router).
+  Users online is the sum over every router that answers; a router that stops answering
+  shows offline after `ROUTER_OFFLINE_AFTER` missed polls (default 2) and its users drop out
+  of the total.
+- Switches and access points come from SNMP (`devices:poll`, every minute).
+- The page refreshes the row every 10 seconds without reloading.
+
+Sub-minute polling needs the scheduler cron from `deploy/` (Laravel keeps `schedule:run`
+alive for the rest of the minute) and running queue workers.
+
 ## Next steps
 
 - FreeRADIUS with the `sql` module on the same PostgreSQL (`radcheck`, `radreply`, `radacct`)

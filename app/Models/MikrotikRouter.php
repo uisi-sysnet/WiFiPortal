@@ -34,6 +34,7 @@ class MikrotikRouter extends Model
         'mgmt_subnet', 'mgmt_gateway', 'mgmt_pool_start', 'mgmt_pool_end',
         'test_subnet', 'test_gateway', 'test_pool_start', 'test_pool_end',
         'identity', 'board_name', 'ros_version',
+        'latitude', 'longitude',
     ];
 
     protected $hidden = ['password'];
@@ -75,6 +76,10 @@ class MikrotikRouter extends Model
             'vlans' => 'array',
             'provision_log' => 'array',
             'provisioned_at' => 'datetime',
+            'latitude' => 'decimal:7',
+            'longitude' => 'decimal:7',
+            'last_seen_at' => 'datetime',
+            'last_polled_at' => 'datetime',
         ];
     }
 

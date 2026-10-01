@@ -50,21 +50,27 @@ class FakeRouterOs
         $command = substr($endpoint, strrpos($endpoint, '/') + 1);
         $rows = $this->menus[$menu] ?? [];
 
-        $this->response = match ($command) {
-            'print' => array_values(array_filter($rows, function ($row) use ($where) {
-                foreach ($where as $key => $value) {
-                    if (($row[$key] ?? null) !== $value) {
-                        return false;
-                    }
+        $matches = fn () => array_values(array_filter($rows, function ($row) use ($where) {
+            foreach ($where as $key => $value) {
+                if (($row[$key] ?? null) !== $value) {
+                    return false;
                 }
+            }
 
-                return true;
-            })),
+            return true;
+        }));
+
+        $this->response = match (true) {
+            // print with =count-only= answers "!done =ret=<n>"
+            $command === 'print' && array_key_exists('count-only', $set) => ['after' => ['ret' => (string) count($matches())]],
+            $command === 'print' => $matches(),
+            default => match ($command) {
             'add' => $this->add($menu, $set),
             'set' => $this->set($menu, $set),
             'remove' => $this->remove($menu, $set['.id']),
             'move' => $this->move($menu, $set['numbers'], $set['destination']),
             default => [],
+            },
         };
 
         return $this;

@@ -5,6 +5,7 @@ namespace App\Models;
 use Carbon\CarbonInterval;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class NetworkDevice extends Model
 {
@@ -14,8 +15,8 @@ class NetworkDevice extends Model
     ];
 
     protected $fillable = [
-        'type', 'name', 'model', 'mac_address', 'serial_number', 'firmware_version',
-        'mikrotik_router_id', 'barangay_id', 'location', 'latitude', 'longitude',
+        'type', 'name', 'brand', 'model', 'mac_address', 'serial_number', 'firmware_version',
+        'mikrotik_router_id', 'uplink_device_id', 'barangay_id', 'location', 'latitude', 'longitude',
         'host', 'snmp_port', 'snmp_version', 'community',
         'v3_username', 'v3_security_level', 'v3_auth_protocol', 'v3_auth_password',
         'v3_priv_protocol', 'v3_priv_password',
@@ -55,6 +56,55 @@ class NetworkDevice extends Model
     public function barangay(): BelongsTo
     {
         return $this->belongsTo(Barangay::class);
+    }
+
+    /** The switch this device is plugged into (null when it goes straight to a router, or isn't set). */
+    public function uplink(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'uplink_device_id');
+    }
+
+    /** Devices plugged into this switch. */
+    public function downlinks(): HasMany
+    {
+        return $this->hasMany(self::class, 'uplink_device_id');
+    }
+
+    /** The "Connected to" choice as the form sends it: "switch:12", "router:3" or "". */
+    public function uplinkValue(): string
+    {
+        return match (true) {
+            $this->uplink_device_id !== null => 'switch:'.$this->uplink_device_id,
+            $this->mikrotik_router_id !== null => 'router:'.$this->mikrotik_router_id,
+            default => '',
+        };
+    }
+
+    /**
+     * Ids of every device downstream of this one (its downlinks, theirs, ...).
+     * A switch can't be cascaded from any of these, or the chain would loop.
+     *
+     * @return int[]
+     */
+    public function downstreamIds(): array
+    {
+        $found = [];
+        $frontier = [$this->id];
+        while ($frontier) {
+            $next = self::query()->whereIn('uplink_device_id', $frontier)->whereNotIn('id', $found)->pluck('id')->all();
+            $found = [...$found, ...$next];
+            $frontier = $next;
+        }
+
+        return $found;
+    }
+
+    /** Devices behind this switch belong to the same site router; keep that in step after a change. */
+    public function propagateSiteRouter(): void
+    {
+        if ($ids = $this->downstreamIds()) {
+            self::query()->whereIn('id', $ids)->update(['mikrotik_router_id' => $this->mikrotik_router_id]);
+        }
     }
 
     /**

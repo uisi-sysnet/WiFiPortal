@@ -34,6 +34,7 @@ Route::middleware('auth')->group(function () {
     Route::redirect('/', '/dashboard');
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/map-data', [DashboardController::class, 'mapData'])->name('dashboard.map-data');
+    Route::get('/dashboard/live', [DashboardController::class, 'live'])->name('dashboard.live');
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::post('/settings/barangays', [SettingsController::class, 'storeBarangay'])->name('barangays.store');
     Route::put('/settings/barangays/{barangay}', [SettingsController::class, 'updateBarangay'])->name('barangays.update');
@@ -86,4 +87,6 @@ Route::middleware('auth')->group(function () {
         ->name('routers.networks.store');
     Route::put('/networks/{network}', [RouterController::class, 'updateNetwork'])
         ->name('networks.update');
+    Route::put('/routers/{router}/position', [RouterController::class, 'updatePosition'])
+        ->name('routers.position');
 });

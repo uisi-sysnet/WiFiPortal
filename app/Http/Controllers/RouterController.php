@@ -117,12 +117,14 @@ class RouterController extends Controller
             'wan_gateway' => ['exclude_unless:wan_mode,static', 'required', 'ipv4'],
             ...$this->vlanRules(),
             'mgmt_native' => ['sometimes', 'boolean'],
+            ...$this->positionRules(),
             'networks' => ['required', 'array', 'min:1', 'max:'.self::MAX_NETWORKS],
             ...$this->networkRules('networks.*.'),
         ], [
             'name.regex' => 'Use letters, numbers, spaces, dots, dashes or underscores.',
             'ports.required' => 'Choose a router model or read the ports from the router.',
             'networks.required' => 'Add at least one hotspot network.',
+            ...$this->positionMessages(),
             ...$this->networkMessages('networks.*.'),
         ]);
 
@@ -296,6 +298,33 @@ class RouterController extends Controller
         return redirect()->route('routers.show', $router)->with('status', $reapply
             ? "{$network->name} saved. Updating the router."
             : "{$network->name} saved. Phones see the change on their next visit.");
+    }
+
+    /** Map position, so lines from its switches and access points can be drawn on the dashboard. */
+    public function updatePosition(Request $request, MikrotikRouter $router)
+    {
+        $router->update($request->validate($this->positionRules(), $this->positionMessages()));
+
+        return redirect()->route('routers.show', $router)->with('status', $router->latitude !== null
+            ? "{$router->name} is on the dashboard map."
+            : "{$router->name} was taken off the dashboard map.");
+    }
+
+    /** Optional, but both or neither. */
+    private function positionRules(): array
+    {
+        return [
+            'latitude' => ['nullable', 'required_with:longitude', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'required_with:latitude', 'numeric', 'between:-180,180'],
+        ];
+    }
+
+    private function positionMessages(): array
+    {
+        return [
+            'latitude.required_with' => 'Enter both latitude and longitude, or leave both empty.',
+            'longitude.required_with' => 'Enter both latitude and longitude, or leave both empty.',
+        ];
     }
 
     public function provision(MikrotikRouter $router)

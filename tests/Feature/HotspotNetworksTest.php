@@ -220,7 +220,9 @@ class HotspotNetworksTest extends TestCase
 
     public function test_existing_router_becomes_its_first_network(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 2])->assertSuccessful();
+        // Back to just before hotspot networks existed, however many migrations came after.
+        $steps = DB::table('migrations')->where('migration', '>=', '2026_10_09_000000_create_hotspot_networks_table')->count();
+        $this->artisan('migrate:rollback', ['--step' => $steps])->assertSuccessful();
         $this->assertTrue(Schema::hasColumn('mikrotik_routers', 'portal_code'));
 
         $page = DB::table('splash_pages')->insertGetId(Arr::except(SplashPage::defaults(), 'name') + ['created_at' => now(), 'updated_at' => now()]);

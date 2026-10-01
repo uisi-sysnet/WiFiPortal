@@ -101,4 +101,13 @@ return [
         'ssl_port' => (int) env('MIKROTIK_API_SSL_PORT', 8729),
         'timeout' => (int) env('MIKROTIK_API_TIMEOUT', 10),
     ],
+
+    // Live dashboard: `routers:poll` asks every router whether it answers and how
+    // many hotspot users are logged in. Interval 15, 30 or 60 seconds.
+    'poll' => [
+        'seconds' => (int) env('ROUTER_POLL_SECONDS', 30),
+        'timeout' => (int) env('ROUTER_POLL_TIMEOUT', 3),     // short: a dead router mustn't hold up the rest
+        'batch' => (int) env('ROUTER_POLL_BATCH', 20),        // routers per queued job
+        'offline_after' => (int) env('ROUTER_OFFLINE_AFTER', 2), // missed polls before "offline"
+    ],
 ];

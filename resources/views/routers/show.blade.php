@@ -202,6 +202,25 @@ details.add[open] summary{margin-bottom:14px}
   </details>
 @endif
 
+<details class="add" @if($errors->hasAny(['latitude', 'longitude'])) open @endif>
+  <summary>Map position {{ $router->latitude !== null ? '('.(float) $router->latitude.', '.(float) $router->longitude.')' : '(not on the map)' }}</summary>
+  <form method="POST" action="{{ route('routers.position', $router) }}">
+    @csrf @method('PUT')
+    <p class="hint" style="margin:0 0 14px">Puts {{ $router->name }} on the dashboard map, with lines to the switches and access points connected to it. Leave both empty to take it off the map.</p>
+    <div class="net-grid">
+      <div class="field">
+        <label for="pos-lat">Latitude</label>
+        <input id="pos-lat" name="latitude" type="text" inputmode="decimal" class="mono" value="{{ old('latitude', $router->latitude !== null ? (float) $router->latitude : '') }}" placeholder="14.4081">
+      </div>
+      <div class="field">
+        <label for="pos-lng">Longitude</label>
+        <input id="pos-lng" name="longitude" type="text" inputmode="decimal" class="mono" value="{{ old('longitude', $router->longitude !== null ? (float) $router->longitude : '') }}" placeholder="121.0415">
+      </div>
+    </div>
+    <p style="margin:0 0 12px"><button class="btn quiet sm" type="submit">Save position</button></p>
+  </form>
+</details>
+
 <h2>Other networks</h2>
 <div class="table-wrap" style="margin-bottom:28px">
   <table>
