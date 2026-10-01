@@ -10,6 +10,7 @@ use App\Services\Snmp\SnmpProbe;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Str;
 use Throwable;
 
 /** Access points and switches. $type comes from the route: ap | switch. */
@@ -321,5 +322,147 @@ class NetworkDeviceController extends Controller
             'v3_priv_protocol' => ['exclude_unless:snmp_version,3', 'exclude_unless:v3_security_level,authPriv', 'required', Rule::in(['DES', 'AES'])],
             'v3_priv_password' => ['exclude_unless:snmp_version,3', 'exclude_unless:v3_security_level,authPriv', ...$secret, 'min:8'],
         ];
+    }
+
+    /**
+     * Export the current device list (respecting the barangay filter) to a file
+     * Excel opens natively. Uses SpreadsheetML 2003 so no composer package is needed.
+     */
+    public function export(Request $request, string $type)
+    {
+        $info = NetworkDevice::typeInfo($type);
+        $filter = $request->integer('barangay') ?: null;
+
+        $devices = NetworkDevice::query()
+            ->where('network_devices.type', $type)
+            ->when($filter, fn ($q) => $q->where('network_devices.barangay_id', $filter))
+            ->leftJoin('barangays', 'barangays.id', '=', 'network_devices.barangay_id')
+            ->select('network_devices.*', 'barangays.name as barangay_name')
+            ->orderByRaw('barangays.name is null, barangays.name')
+            ->orderBy('network_devices.name')
+            ->get();
+
+        $filename = sprintf(
+            '%s-%s%s.xls',
+            Str::slug($info['plural']),
+            now()->format('Y-m-d-His'),
+            $filter ? '-barangay-'.$filter : ''
+        );
+
+        $headers = [
+            'No.',
+            'Device name',
+            'Status',
+            'Brand',
+            'Model',
+            'IP address',
+            'Port',
+            'MAC address',
+            'Serial number',
+            'Firmware',
+            'Barangay',
+            'Location',
+            'Latitude',
+            'Longitude',
+            'Site router',
+            'Connected to',
+            'Last checked',
+            'Last error',
+        ];
+
+        return response()->streamDownload(function () use ($devices, $headers, $info) {
+            $out = fopen('php://output', 'w');
+
+            // XML header + Workbook/Worksheet so Excel opens it as a real spreadsheet
+            fwrite($out, '<?xml version="1.0" encoding="UTF-8"?>'."\n");
+            fwrite($out, '<?mso-application progid="Excel.Sheet"?>'."\n");
+            fwrite($out, '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"'
+                .' xmlns:o="urn:schemas-microsoft-com:office:office"'
+                .' xmlns:x="urn:schemas-microsoft-com:office:excel"'
+                .' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'."\n");
+
+            // Styles: bold header, freeze row 1, sane column widths
+            fwrite($out, '<Styles>'."\n");
+            fwrite($out, '<Style ss:ID="hdr"><Font ss:Bold="1"/><Interior ss:Color="#EAF6F1" ss:Pattern="Solid"/></Style>'."\n");
+            fwrite($out, '<Style ss:ID="txt"><NumberFormat ss:Format="@"/></Style>'."\n");
+            fwrite($out, '</Styles>'."\n");
+
+            fwrite($out, '<Worksheet ss:Name="'.htmlspecialchars(substr($info['plural'], 0, 31), ENT_XML1).'">'."\n");
+            fwrite($out, '<Table>'."\n");
+
+            // Column widths
+            $widths = [40, 140, 70, 90, 120, 110, 50, 120, 120, 100, 120, 180, 90, 90, 120, 120, 130, 220];
+            foreach ($widths as $w) {
+                fwrite($out, '<Column ss:Width="'.$w.'"/>');
+            }
+            fwrite($out, "\n");
+
+            // Header row
+            fwrite($out, '<Row ss:StyleID="hdr">');
+            foreach ($headers as $h) {
+                fwrite($out, '<Cell><Data ss:Type="String">'.htmlspecialchars($h, ENT_XML1).'</Data></Cell>');
+            }
+            fwrite($out, '</Row>'."\n");
+
+            // Data rows
+            foreach ($devices as $i => $d) {
+                $siteRouter = $d->siteRouter?->name ?? '';
+                $uplink = '';
+                if ($d->uplink_device_id) {
+                    $uplink = 'Switch: '.($d->uplinkDevice?->name ?? $d->uplink_device_id);
+                } elseif ($d->mikrotik_router_id) {
+                    $uplink = 'Router: '.$siteRouter;
+                }
+
+                $cells = [
+                    $i + 1,
+                    $d->name,
+                    $d->statusLabel(),
+                    $d->brand,
+                    $d->model,
+                    $d->host,
+                    $d->snmp_port,
+                    $d->mac_address,
+                    $d->serial_number,
+                    $d->firmware_version,
+                    $d->barangay_name,
+                    $d->location,
+                    $d->latitude,
+                    $d->longitude,
+                    $siteRouter,
+                    $uplink,
+                    $d->last_checked_at?->toDateTimeString(),
+                    $d->last_error,
+                ];
+
+                fwrite($out, '<Row>');
+                foreach ($cells as $cell) {
+                    $isNumeric = is_int($cell) || is_float($cell);
+                    $type = $isNumeric ? 'Number' : 'String';
+                    $value = $isNumeric ? (string) $cell : (string) ($cell ?? '');
+                    fwrite($out, '<Cell><Data ss:Type="'.$type.'">'
+                        .htmlspecialchars($value, ENT_XML1)
+                        .'</Data></Cell>');
+                }
+                fwrite($out, '</Row>'."\n");
+            }
+
+            fwrite($out, '</Table>'."\n");
+
+            // Freeze the header row so it stays visible while scrolling in Excel
+            fwrite($out, '<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">'
+                .'<FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal>'
+                .'<TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane>'
+                .'</WorksheetOptions>'."\n");
+
+            fwrite($out, '</Worksheet>'."\n");
+            fwrite($out, '</Workbook>'."\n");
+
+            fclose($out);
+        }, $filename, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+            'Pragma' => 'no-cache',
+        ]);
     }
 }

@@ -572,6 +572,20 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
             <noscript><button class="btn control quiet" type="submit">Show</button></noscript>
           </form>
 
+          {{-- NEW: Export to Excel --}}
+          <a class="btn control quiet"
+            href="{{ route($info['route'].'.export', array_filter(['barangay' => $filter])) }}"
+            title="Download this list as an Excel file">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                style="margin-right:6px">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Export to Excel
+          </a>
+
           <a class="btn control primary" href="{{ route($info['route'].'.index', ['add' => 1]) }}" data-open-add>
             + Add {{ strtolower($info['label']) }}
           </a>
