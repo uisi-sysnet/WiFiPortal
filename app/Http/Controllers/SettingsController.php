@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Barangay;
+use App\Models\Setting;
 use Illuminate\Http\Request;
 
 class SettingsController extends Controller
@@ -11,7 +12,40 @@ class SettingsController extends Controller
     {
         return view('settings.index', [
             'barangays' => Barangay::query()->withCount('devices')->orderBy('name')->get(),
+            'map' => [
+                'latitude' => Setting::read('map.latitude'),
+                'longitude' => Setting::read('map.longitude'),
+                'zoom' => Setting::read('map.zoom'),
+            ],
+            'defaultZoom' => DashboardController::DEFAULT_ZOOM,
         ]);
+    }
+
+    /**
+     * Where the dashboard map opens. All empty: the map frames the devices
+     * automatically. Latitude and longitude go together; zoom needs a center.
+     */
+    public function updateMap(Request $request)
+    {
+        $data = $request->validateWithBag('map', [
+            'latitude' => ['nullable', 'required_with:longitude,zoom', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'required_with:latitude,zoom', 'numeric', 'between:-180,180'],
+            'zoom' => ['nullable', 'integer', 'between:3,19'],
+        ], [
+            'latitude.required_with' => 'Enter the latitude too, or leave all three empty.',
+            'longitude.required_with' => 'Enter the longitude too, or leave all three empty.',
+            'zoom.between' => 'Zoom goes from 3 (a whole region) to 19 (a single building).',
+        ]);
+
+        Setting::write([
+            'map.latitude' => $data['latitude'] ?? null,
+            'map.longitude' => $data['longitude'] ?? null,
+            'map.zoom' => $data['zoom'] ?? null,
+        ]);
+
+        return redirect()->to(route('settings').'#map')->with('status', isset($data['latitude'])
+            ? 'The dashboard map now opens on that spot.'
+            : 'The dashboard map now frames your devices automatically.');
     }
 
     public function storeBarangay(Request $request)

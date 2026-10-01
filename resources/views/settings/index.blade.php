@@ -18,6 +18,9 @@
 .brgy-err{grid-column:1/-1;margin:0}
 .brgy-list .btn[hidden]{display:none}
 .brgy-list .btn:disabled{opacity:.4;cursor:not-allowed}
+.map-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 120px;gap:14px;max-width:640px}
+@media (max-width:640px){.map-fields{grid-template-columns:1fr}}
+.map-form .actions{flex-wrap:wrap}
 @media (max-width:640px){.brgy-list li{grid-template-columns:1fr}.brgy-meta{justify-content:space-between}}
 </style>
 @endpush
@@ -80,6 +83,38 @@
   @endif
 </section>
 
+@php $mapErr = $errors->getBag('map'); @endphp
+<section class="settings-section" id="map" aria-labelledby="map-title">
+  <h2 id="map-title">Dashboard map</h2>
+  <p class="hint" style="margin:0 0 14px">Where the map opens, e.g. the center of the city where you deploy. Leave all three empty and the map zooms to fit every access point, switch and router instead.</p>
+
+  <form method="POST" action="{{ route('settings.map') }}" class="map-form" novalidate>
+    @csrf @method('PUT')
+    <div class="map-fields">
+      @foreach ([['latitude', 'Latitude', '14.4081', 'decimal'], ['longitude', 'Longitude', '121.0415', 'decimal'], ['zoom', 'Zoom', (string) $defaultZoom, 'numeric']] as [$f, $label, $ph, $mode])
+        <div class="field">
+          <label for="map-{{ $f }}">{{ $label }}</label>
+          <input id="map-{{ $f }}" name="{{ $f }}" type="text" inputmode="{{ $mode }}" class="mono"
+                 value="{{ $mapErr->any() ? old($f) : ($map[$f] !== null ? ($f === 'zoom' ? (int) $map[$f] : (float) $map[$f]) : '') }}"
+                 placeholder="{{ $ph }}"
+                 @if($mapErr->has($f)) aria-invalid="true" aria-describedby="map-{{ $f }}-error" @endif>
+          @if ($mapErr->has($f))<p class="error" id="map-{{ $f }}-error">{{ $mapErr->first($f) }}</p>@endif
+        </div>
+      @endforeach
+    </div>
+    <p class="hint" style="margin:-6px 0 14px">Zoom 3 shows a whole region, 13 a city, 15 a barangay (used when empty), 19 a single building.
+      Tip: right-click a spot in Google Maps and click the coordinates to copy them, then paste into Latitude.</p>
+    <div class="actions">
+      <button class="btn" type="submit">Save map position</button>
+      <button class="btn quiet" type="button" id="map-clear">Clear: fit to devices</button>
+      <a class="btn quiet" href="{{ route('dashboard.map') }}" target="_blank" rel="noopener">Open map</a>
+      <span class="hint" id="map-now">
+        {{ $map['latitude'] !== null ? 'Now: opens on '.(float) $map['latitude'].', '.(float) $map['longitude'].' at zoom '.($map['zoom'] ?? $defaultZoom).'.' : 'Now: fits to devices automatically.' }}
+      </span>
+    </div>
+  </form>
+</section>
+
 <section class="settings-section" aria-labelledby="other-title">
   <h2 id="other-title">Other settings</h2>
   <div class="plan">
@@ -90,6 +125,24 @@
 </section>
 
 <script>
+  // Map: clearing all three means "fit to devices"; pasting "14.4081, 121.0415" into either box fills both.
+  (function () {
+    var lat = document.getElementById('map-latitude'), lng = document.getElementById('map-longitude'), zoom = document.getElementById('map-zoom');
+    document.getElementById('map-clear').addEventListener('click', function () {
+      lat.value = lng.value = zoom.value = '';
+      this.form.requestSubmit();
+    });
+    [lat, lng].forEach(function (input) {
+      input.addEventListener('paste', function (e) {
+        var m = (e.clipboardData || window.clipboardData).getData('text').match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+        if (!m) return;
+        e.preventDefault();
+        lat.value = m[1];
+        lng.value = m[2];
+      });
+    });
+  })();
+
   // Show Save only once a name is actually changed.
   document.querySelectorAll('.brgy-edit').forEach(function (form) {
     var input = form.querySelector('input[name=name]'), save = form.querySelector('button');

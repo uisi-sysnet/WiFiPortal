@@ -110,4 +110,10 @@ return [
         'batch' => (int) env('ROUTER_POLL_BATCH', 20),        // routers per queued job
         'offline_after' => (int) env('ROUTER_OFFLINE_AFTER', 2), // missed polls before "offline"
     ],
+
+    // "Users online" chart: `users:snapshot` saves the total every 5 minutes.
+    'history' => [
+        'keep_days' => (int) env('USER_HISTORY_DAYS', 400),           // a little over a year
+        'timezone' => env('DASHBOARD_TIMEZONE', 'Asia/Manila'),      // hours, days and months on the chart
+    ],
 ];
