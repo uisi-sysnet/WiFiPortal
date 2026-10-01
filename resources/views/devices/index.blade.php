@@ -624,7 +624,6 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                 <td class="num" data-label="No.">{{ $devices->firstItem() + $loop->index }}</td>
                 <td data-label="Device name">
                   <span class="dev" title="{{ $d->statusLabel() }}{{ $d->last_checked_at ? ', checked '.$d->last_checked_at->diffForHumans() : '' }}{{ $d->status === 'offline' && $d->last_error ? '. '.$d->last_error : '' }}">
-                    <span class="dot {{ $d->status }}" aria-hidden="true"></span>
                     {{ $d->name }}
                   </span>
                 </td>

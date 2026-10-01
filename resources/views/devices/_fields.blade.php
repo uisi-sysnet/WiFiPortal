@@ -10,6 +10,14 @@
   $keep = $editing ? 'Leave blank to keep the current one.' : '';
 @endphp
 
+{{-- Leaflet CSS (loaded once per page) --}}
+@once
+@push('head')
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+@endpush
+@endonce
+
 <div class="device-fields">
     <fieldset>
       <legend>{{ $info['label'] }}</legend>
@@ -116,6 +124,14 @@
           @error('uplink')<p class="error" id="uplink-error">{{ $message }}</p>@enderror
         </div>
       </div>
+
+      {{-- Map picker --}}
+      <div class="field">
+        <label>Pick on map <span class="hint">Click or drag the pin to set coordinates</span></label>
+        <div id="map-picker" class="map-picker" role="application" aria-label="Map to pick device location"></div>
+        <p class="hint" style="margin-top:2px">Tip: scroll to zoom, drag to pan. The pin follows the Latitude / Longitude fields.</p>
+      </div>
+
       <div class="row">
         <div class="field">
           <label for="latitude">Latitude</label>
@@ -475,6 +491,30 @@
   color: var(--signal-dark);
 }
 
+/* --- Leaflet map picker --- */
+.device-fields .map-picker {
+  width: 100%;
+  height: 240px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #F7FAF8;
+  position: relative;
+  z-index: 0;
+}
+.device-fields .map-picker .leaflet-container {
+  font: inherit;
+  font-size: .78rem;
+  background: #F7FAF8;
+}
+.device-fields .map-picker .leaflet-control-attribution {
+  font-size: .65rem;
+  background: rgba(255,255,255,.85);
+}
+.device-fields .map-picker .leaflet-bar a {
+  color: var(--ink);
+}
+
 @media (max-width: 720px) {
   .device-fields .row,
   .device-fields .row-3 {
@@ -483,6 +523,9 @@
   }
   .device-fields fieldset {
     padding: 14px 14px 4px;
+  }
+  .device-fields .map-picker {
+    height: 200px;
   }
 }
 
@@ -524,33 +567,132 @@
     if (hex.length === 12) e.target.value = hex.toUpperCase().match(/.{2}/g).join(':');
   });
 
-  /* ---- Coordinates ---- */
+  /* ---- Coordinates + Leaflet map ---- */
   const lat = $('latitude'), lng = $('longitude'), mapLink = $('map-check'), geoMsg = $('geo-msg');
-  function syncMap() {
+  const mapEl = $('map-picker');
+
+  // Default: Manila, Philippines (matches the placeholder coords)
+  const DEFAULT_CENTER = [14.5995, 120.9842];
+  const DEFAULT_ZOOM = 12;
+
+  let map, marker;
+  let suppressMapSync = false; // prevents event loops
+
+  function parseCoords() {
     const a = parseFloat(lat.value), b = parseFloat(lng.value);
     const ok = !isNaN(a) && !isNaN(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180;
-    mapLink.hidden = !ok;
-    if (ok) mapLink.href = 'https://www.google.com/maps?q=' + a + ',' + b;
+    return ok ? { lat: a, lng: b } : null;
   }
+
+  function syncMapLink() {
+    const c = parseCoords();
+    mapLink.hidden = !c;
+    if (c) mapLink.href = 'https://www.google.com/maps?q=' + c.lat + ',' + c.lng;
+  }
+
+  function setInputs(a, b) {
+    lat.value = Number(a).toFixed(7);
+    lng.value = Number(b).toFixed(7);
+    syncMapLink();
+  }
+
+  function setMarker(a, b, { recenter = false } = {}) {
+    if (!map || !marker) return;
+    marker.setLatLng([a, b]);
+    if (recenter) map.setView([a, b], Math.max(map.getZoom(), 15));
+  }
+
+  function initMap() {
+    if (!mapEl || typeof L === 'undefined') return;
+
+    const c = parseCoords() || { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1] };
+    const zoom = parseCoords() ? 15 : DEFAULT_ZOOM;
+
+    map = L.map(mapEl, {
+      center: [c.lat, c.lng],
+      zoom,
+      zoomControl: true,
+      scrollWheelZoom: true,
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(map);
+
+    marker = L.marker([c.lat, c.lng], { draggable: true }).addTo(map);
+
+    marker.on('dragend', () => {
+      const p = marker.getLatLng();
+      suppressMapSync = true;
+      setInputs(p.lat, p.lng);
+      suppressMapSync = false;
+    });
+
+    map.on('click', (e) => {
+      suppressMapSync = true;
+      setInputs(e.latlng.lat, e.latlng.lng);
+      setMarker(e.latlng.lat, e.latlng.lng);
+      suppressMapSync = false;
+    });
+
+    // Make sure tiles line up after modal opens (dialog layout changes size).
+    setTimeout(() => map.invalidateSize(), 80);
+    // Some browsers need a second nudge after transitions.
+    setTimeout(() => map.invalidateSize(), 350);
+  }
+
+  // Keep map in sync when the user types or pastes into the inputs.
+  function onInputChange() {
+    if (suppressMapSync) return;
+    const c = parseCoords();
+    if (c) setMarker(c.lat, c.lng, { recenter: true });
+    syncMapLink();
+  }
+
   [lat, lng].forEach((input) => input.addEventListener('paste', (e) => {
     const text = (e.clipboardData || window.clipboardData).getData('text');
     const m = text.match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
     if (!m) return;
     e.preventDefault();
-    lat.value = m[1];
-    lng.value = m[2];
-    syncMap();
+    setInputs(m[1], m[2]);
+    setMarker(parseFloat(m[1]), parseFloat(m[2]), { recenter: true });
   }));
-  [lat, lng].forEach((input) => input.addEventListener('input', syncMap));
-  syncMap();
+  [lat, lng].forEach((input) => input.addEventListener('input', onInputChange));
 
+  syncMapLink();
+
+  // Leaflet is loaded lazily; wait for it.
+  if (typeof L === 'undefined') {
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+    s.crossOrigin = '';
+    s.onload = () => {
+      initMap();
+      // If a dialog contains this map, reinit on open so it renders correctly.
+      const dlg = mapEl.closest('dialog');
+      if (dlg) dlg.addEventListener('toggle', () => {
+        if (dlg.open && map) setTimeout(() => map.invalidateSize(), 60);
+      });
+    };
+    document.head.appendChild(s);
+  } else {
+    initMap();
+    const dlg = mapEl.closest('dialog');
+    if (dlg) dlg.addEventListener('toggle', () => {
+      if (dlg.open && map) setTimeout(() => map.invalidateSize(), 60);
+    });
+  }
+
+  /* ---- Use my location ---- */
   $('use-location').addEventListener('click', () => {
     if (!navigator.geolocation) { geoMsg.textContent = 'This browser cannot share its location.'; return; }
     geoMsg.textContent = 'Getting your location...';
     navigator.geolocation.getCurrentPosition((pos) => {
-      lat.value = pos.coords.latitude.toFixed(7);
-      lng.value = pos.coords.longitude.toFixed(7);
-      syncMap();
+      const a = pos.coords.latitude, b = pos.coords.longitude;
+      setInputs(a, b);
+      setMarker(a, b, { recenter: true });
       geoMsg.textContent = 'Location filled in, accurate to about ' + Math.round(pos.coords.accuracy) + ' m.';
     }, (err) => {
       geoMsg.textContent = err.code === 1
