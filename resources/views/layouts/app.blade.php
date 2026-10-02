@@ -99,16 +99,7 @@
               aria-[current=page]:text-[#F2B84B] aria-[current=page]:font-semibold
               aria-[current=page]:after:opacity-100"
        @if(request()->routeIs('guests.*')) aria-current="page" @endif>Guest</a>
-    <a href="{{ route('splash.edit') }}"
-       class="relative inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium
-              text-white/90 no-underline transition-all duration-200
-              hover:text-[#F2B84B]
-              after:content-[''] after:absolute after:left-3 after:right-3 after:bottom-0.5 after:h-px
-              after:bg-[#F2B84B] after:opacity-0 after:shadow-[0_0_8px_rgba(242,184,75,0.9)]
-              hover:after:opacity-100
-              aria-[current=page]:text-[#F2B84B] aria-[current=page]:font-semibold
-              aria-[current=page]:after:opacity-100"
-       @if(request()->routeIs('splash.*')) aria-current="page" @endif>Captive portal</a>
+    @include('partials.editor-menu')
   </nav>
 
   {{-- Right: account --}}

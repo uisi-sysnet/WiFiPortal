@@ -72,8 +72,14 @@ Route::middleware('auth')->group(function () {
 
     // Captive portal designs. /splash opens the default one.
     Route::get('/splash', [SplashPageController::class, 'index'])->name('splash.edit');
+    Route::get('/splash/login', [SplashPageController::class, 'loginDefault'])->name('splash.login');
+    Route::get('/splash/advertisement', [SplashPageController::class, 'advertisementDefault'])->name('splash.advertisement');
+    Route::get('/splash/{page}/login', [SplashPageController::class, 'login'])->whereNumber('page')->name('splash.login.design');
+    Route::get('/splash/{page}/advertisement', [SplashPageController::class, 'advertisement'])->whereNumber('page')->name('splash.advertisement.design');
     Route::post('/splash', [SplashPageController::class, 'store'])->name('splash.store');
     Route::get('/splash/{page}', [SplashPageController::class, 'edit'])->whereNumber('page')->name('splash.design');
+    Route::put('/splash/{page}/login', [SplashPageController::class, 'updateLogin'])->whereNumber('page')->name('splash.login.update');
+    Route::put('/splash/{page}/advertisement', [SplashPageController::class, 'updateAdvertisement'])->whereNumber('page')->name('splash.advertisement.update');
     Route::put('/splash/{page}', [SplashPageController::class, 'update'])->whereNumber('page')->name('splash.update');
     Route::delete('/splash/{page}', [SplashPageController::class, 'destroy'])->whereNumber('page')->name('splash.destroy');
     // PUT too: the editor form spoofs PUT, and Preview reuses that form.

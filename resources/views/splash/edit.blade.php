@@ -5,7 +5,15 @@
 
 @push('head')
 <style>
-body.wide main{max-width:1600px}
+/* Keep the portal editor consistent with the green inventory pages. */
+:root{--signal:#0e670d;--signal-soft:color-mix(in srgb,#0e670d 12%,#fff);--signal-hover:color-mix(in srgb,#0e670d 85%,#000);--line:#0e670d;--ink:#0F1A1F;--ink-2:#5c6b66;--paper:#fff;--panel:#fff;--hover:#F0F3F1;--fail:#B3372E;--focus:#F2B84B;--radius:8px}
+body.wide main{max-width:1600px;padding:22px 20px 36px}
+.page-head{display:flex;align-items:center;justify-content:space-between;gap:10px 20px;margin-bottom:14px;padding:14px 16px;background:color-mix(in srgb,#0e670d 12%,#fff);border:2px solid var(--line);border-radius:8px}
+.page-head h1{margin:0 0 4px;font-size:1.05rem;font-weight:700;letter-spacing:-.01em;text-transform:uppercase;color:var(--ink)}
+.page-head .lede{max-width:110ch;margin:0;color:var(--ink-2);font-size:.82rem;line-height:1.45}
+.notice,.alert{padding:10px 14px;margin:0 0 12px;border:1px solid;border-left-width:4px;border-radius:6px;font-size:.85rem}
+.notice{color:#0e670d;background:color-mix(in srgb,#0e670d 8%,#fff);border-color:color-mix(in srgb,#0e670d 30%,#fff)}
+.alert{color:var(--fail);background:color-mix(in srgb,var(--fail) 8%,#fff);border-color:color-mix(in srgb,var(--fail) 30%,#fff)}
 .studio{display:grid;grid-template-columns:minmax(0,6fr) minmax(380px,5fr);gap:28px;align-items:start}
 
 /* Live preview (left) */
@@ -85,14 +93,64 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
   .studio{grid-template-columns:1fr}
   .preview{position:static;height:78vh;order:-1}
 }
+
+/* Green admin controls and cards */
+fieldset{border:2px solid var(--line);background:#fff;padding:16px 18px 2px;margin:0 0 14px;border-radius:8px;min-width:0;box-shadow:0 1px 3px rgba(10,20,26,.04)}
+legend{padding:0 7px;color:var(--signal);font-size:.76rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.field{gap:5px;margin-bottom:14px}
+.field label{font-size:.82rem;font-weight:650;color:var(--ink)}
+.hint{font-size:.78rem;line-height:1.45;color:var(--ink-2)}
+.error{font-size:.8rem;color:var(--fail)}
+input[type=text],input[type=email],input[type=password],input[type=number],select,textarea.prose,textarea.list{font:inherit;padding:8px 10px;border:1px solid color-mix(in srgb,#0e670d 55%,#fff);border-radius:6px;background:#fff;color:var(--ink);transition:border-color .15s,box-shadow .15s}
+input[type=text]:focus,input[type=email]:focus,input[type=password]:focus,input[type=number]:focus,select:focus,textarea:focus{outline:none;border-color:var(--signal);box-shadow:0 0 0 3px var(--signal-soft)}
+input[aria-invalid="true"],textarea[aria-invalid="true"]{border-color:var(--fail);box-shadow:0 0 0 2px color-mix(in srgb,var(--fail) 12%,transparent)}
+textarea.code,textarea.prose,textarea.list{border-radius:6px;background:#FBFCFB}
+textarea.code{border-color:color-mix(in srgb,#0e670d 55%,#fff)}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:5px 11px;border:1px solid var(--signal);border-radius:6px;background:var(--signal);color:#fff;font:inherit;font-size:.8rem;font-weight:600;line-height:1.2;text-decoration:none;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.btn:hover{background:var(--signal-hover);border-color:var(--signal-hover);color:#fff}
+.btn.quiet{background:#fff;color:var(--ink)}
+.btn.quiet:hover{background:var(--hover);color:var(--ink)}
+.btn.danger{background:#fff;color:var(--fail);border-color:color-mix(in srgb,var(--fail) 40%,#fff)}
+.btn.danger:hover{background:color-mix(in srgb,var(--fail) 8%,#fff);color:var(--fail)}
+.btn.sm{min-height:29px;padding:4px 9px;font-size:.76rem}
+.designs{padding:12px 14px;margin-bottom:14px;border:2px solid var(--line);border-radius:8px;background:#fff;box-shadow:0 1px 3px rgba(10,20,26,.04)}
+.designs-row{gap:8px 10px}
+.designs-row>label{font-size:.78rem;color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em}
+.designs-row select{min-width:220px;padding:6px 10px}
+.new-design form{border:1px solid var(--line);border-radius:8px;box-shadow:0 12px 32px rgba(10,20,26,.18)}
+.new-design input[type=text]{width:100%;padding:8px 10px}
+.used-by{font-size:.8rem;gap:3px}
+.used-by b{color:var(--signal)}
+.tokens{margin:0 0 6px}
+.tokens button{padding:3px 8px;border-color:color-mix(in srgb,#0e670d 55%,#fff);border-radius:6px;background:#F7FAF7;color:var(--signal);font-size:.75rem}
+.tokens button:hover{background:var(--signal-soft)}
+.sticky-actions{bottom:8px;gap:8px;padding:10px;background:linear-gradient(to top,#fff 78%,rgba(255,255,255,.88));border:1px solid color-mix(in srgb,#0e670d 35%,#fff);border-radius:8px;box-shadow:0 4px 14px rgba(10,20,26,.08)}
+#dirty{font-size:.78rem;color:#9A610D}
+.preview{top:96px;height:calc(100vh - 112px);min-height:480px;border:2px solid var(--line);border-radius:8px;background:#fff;box-shadow:0 2px 8px rgba(10,20,26,.08)}
+.preview-bar{gap:7px;padding:8px 10px;border-bottom:1px solid var(--line);background:color-mix(in srgb,#0e670d 8%,#fff)}
+.seg,.bar-btn{border-color:color-mix(in srgb,#0e670d 48%,#fff);border-radius:6px}
+.seg button,.bar-btn{font-size:.75rem}
+.seg button[aria-pressed="true"],.bar-btn[aria-pressed="true"]{background:var(--signal);color:#fff}
+.preview-meta{padding:6px 10px;font-size:.76rem;border-bottom:1px solid color-mix(in srgb,#0e670d 35%,#fff)}
+.stage{padding:14px;background:repeating-conic-gradient(#E8EEE8 0 25%,#F4F7F4 0 50%) 0 0/18px 18px}
+.media-lib{padding:12px;border:1px solid color-mix(in srgb,#0e670d 45%,#fff);border-radius:8px;background:#FBFCFB}
+.media-up input[type=file]{max-width:100%;font-size:.78rem}
+.media-up input[type=text]{width:100%;padding:7px 9px}
+.media-grid li{border-color:color-mix(in srgb,#0e670d 35%,#fff);border-radius:7px}
+.media-grid .acts button{border-color:color-mix(in srgb,#0e670d 50%,#fff);border-radius:6px;font-size:.75rem}
+.media-grid .acts button:hover{background:var(--signal-soft)}
+.media-grid .acts button.del{color:var(--fail);border-color:color-mix(in srgb,var(--fail) 40%,#fff)}
+.budget{border-color:color-mix(in srgb,#0e670d 35%,#fff);border-radius:7px;background:#F5F8F5;font-size:.8rem}
+@media(max-width:700px){body.wide main{padding:16px 12px 28px}.page-head{padding:11px 12px}.page-head .lede{font-size:.76rem}.studio{grid-template-columns:minmax(0,1fr);gap:14px}.preview{height:70vh;min-height:420px}.designs-row select{flex:1;min-width:0}.new-design form{left:auto;right:0;max-width:calc(100vw - 32px)}fieldset{padding:14px 12px 1px}.sticky-actions{bottom:4px}.media-up{grid-template-columns:1fr}.media-up input[type=file]{width:100%}}
 </style>
 @endpush
 
 @section('content')
+@php $isAdvertisement = $editorPage === 'advertisement'; @endphp
 <div class="page-head">
   <div>
-    <h1>Captive portal</h1>
-    <p class="lede">The two pages phones see before they get internet: the login page, where people enter their details, then the advertisement page with the Connect button. Keep several designs and choose, per hotspot network, which one shows each page. Edit on the left, see it on the right as you type.</p>
+    <h1>{{ $isAdvertisement ? 'Advertisement page editor' : 'Login page editor' }}</h1>
+    <p class="lede">Edit the {{ $isAdvertisement ? 'advertisement and Connect experience' : 'guest login form, Terms and Conditions' }} for this design. Changes appear in the preview as you type.</p>
   </div>
 </div>
 
@@ -108,13 +166,14 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
     <label for="design-pick">Design</label>
     <select id="design-pick">
       @foreach ($designs as $d)
-        <option value="{{ route('splash.design', $d) }}" @selected($d->id === $page->id)>{{ $d->name }}{{ $loop->first ? ' (default)' : '' }}</option>
+      <option value="{{ route($isAdvertisement ? 'splash.advertisement.design' : 'splash.login.design', $d) }}" @selected($d->id === $page->id)>{{ $d->name }}{{ $loop->first ? ' (default)' : '' }}</option>
       @endforeach
     </select>
     <details class="new-design" @error('design_name') open @enderror>
       <summary class="btn quiet sm">New design</summary>
       <form method="POST" action="{{ route('splash.store') }}">
         @csrf
+        <input type="hidden" name="editor_page" value="{{ $editorPage }}">
         <label for="new-design-name" style="font-weight:600">Name</label>
         <input id="new-design-name" name="design_name" type="text" maxlength="80" required placeholder="e.g. School WiFi" value="{{ old('design_name') }}">
         @error('design_name')<p class="error">{{ $message }}</p>@enderror
@@ -125,6 +184,7 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
     @unless ($page->isDefault())
       <form method="POST" action="{{ route('splash.destroy', $page) }}" onsubmit="return confirm('Delete the design {{ addslashes($page->name) }}?')">
         @csrf @method('DELETE')
+        <input type="hidden" name="editor_page" value="{{ $editorPage }}">
         <button class="btn danger sm" type="submit">Delete design</button>
       </form>
     @endunless
@@ -139,8 +199,9 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
 <div class="studio">
   {{-- ---------- Editor ---------- --}}
   <div>
-    <form method="POST" action="{{ route('splash.update', $page) }}" id="splash-form" novalidate>
+    <form method="POST" action="{{ route($isAdvertisement ? 'splash.advertisement.update' : 'splash.login.update', $page) }}" id="splash-form" novalidate>
       @csrf @method('PUT')
+      <input type="hidden" name="editor_page" value="{{ $editorPage }}">
 
       <fieldset>
         <legend>Design</legend>
@@ -151,16 +212,16 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
           <p class="hint">Only admins see this, when choosing a design for a hotspot network.</p>
           @error('name')<p class="error">{{ $message }}</p>@enderror
         </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Login page</legend>
         <div class="field">
           <label for="site_name">Site name</label>
-          <input id="site_name" name="site_name" type="text" maxlength="80" value="{{ old('site_name', $page->site_name) }}" required
-                 @error('site_name') aria-invalid="true" @enderror>
+          <input id="site_name" name="site_name" type="text" maxlength="80" value="{{ old('site_name', $page->site_name) }}" required @error('site_name') aria-invalid="true" @enderror>
           @error('site_name')<p class="error">{{ $message }}</p>@enderror
         </div>
+      </fieldset>
+
+      @unless ($isAdvertisement)
+      <fieldset>
+        <legend>Login page</legend>
         <div class="field">
           <label for="html">Login page HTML</label>
           <ul class="tokens" aria-label="Insert placeholder">
@@ -175,7 +236,9 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
         </div>
 
       </fieldset>
+      @endunless
 
+      @if ($isAdvertisement)
       <fieldset id="ad-fields">
         <legend>Advertisement page</legend>
         <p class="hint" style="margin:0 0 14px">Shown after the details are saved. Internet opens when the user taps the button.</p>
@@ -236,7 +299,9 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
           @error('success_url')<p class="error">{{ $message }}</p>@enderror
         </div>
       </fieldset>
+      @endif
 
+      @unless ($isAdvertisement)
       <fieldset>
         <legend>Terms and Conditions</legend>
         <div class="field">
@@ -274,50 +339,53 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
           <p class="hint">One word or phrase per line. Numbers, symbols and keyboard mashing are always rejected.</p>
         </div>
       </fieldset>
+      @endunless
 
       <div class="sticky-actions">
         <button class="btn" type="submit" id="save-btn">Save design</button>
-        <input type="hidden" name="preview_page" id="preview-page-field" value="login">
+        <input type="hidden" name="preview_page" id="preview-page-field" value="{{ $isAdvertisement ? 'ad' : 'login' }}">
         <button class="btn quiet" type="submit" formaction="{{ route('splash.preview', $page) }}" formtarget="_blank">Open preview in new tab</button>
         <span id="dirty" hidden>Unsaved changes</span>
       </div>
     </form>
 
     <div class="actions" style="flex-wrap:wrap">
+      @unless ($isAdvertisement)
       <form method="POST" action="{{ route('splash.reset', $page) }}" onsubmit="return confirm('Replace the login page HTML with the default template? Terms and form settings stay as they are.')">
         @csrf
+        <input type="hidden" name="editor_page" value="login">
         <button class="btn danger" type="submit">Reset login page HTML</button>
       </form>
+      @endunless
+      @if ($isAdvertisement)
       <form method="POST" action="{{ route('splash.reset', $page) }}" onsubmit="return confirm('Replace the advertisement page HTML with the default template?')">
         @csrf
+        <input type="hidden" name="editor_page" value="advertisement">
         <input type="hidden" name="which" value="ad">
         <button class="btn danger" type="submit">Reset advertisement page HTML</button>
       </form>
+      @endif
     </div>
   </div>
 
   {{-- ---------- Live preview ---------- --}}
   <section class="preview" aria-label="Live preview">
     <div class="preview-bar">
-      <div class="seg" role="group" aria-label="Page">
-        <button type="button" data-page="login" aria-pressed="true">Login page</button>
-        <button type="button" data-page="ad" aria-pressed="false">Advertisement</button>
-      </div>
       <div class="seg" role="group" aria-label="Screen size">
         <button type="button" data-device="phone" aria-pressed="true">Phone</button>
         <button type="button" data-device="tablet" aria-pressed="false">Tablet</button>
         <button type="button" data-device="desktop" aria-pressed="false">Desktop</button>
       </div>
-      <div class="seg" role="group" aria-label="Form view">
+      <div class="seg" role="group" aria-label="Form view" @if($isAdvertisement) hidden @endif>
         <button type="button" data-view="visitor" aria-pressed="true">Visitor</button>
         <button type="button" data-view="resident" aria-pressed="false">Resident</button>
       </div>
-      <button type="button" class="bar-btn" id="terms-toggle" aria-pressed="false">Terms pop-up</button>
+      <button type="button" class="bar-btn" id="terms-toggle" aria-pressed="false" @if($isAdvertisement) hidden @endif>Terms pop-up</button>
     </div>
     <div class="preview-meta">
       <span id="preview-status" aria-live="polite">Loading preview...</span>
       <span id="scale-label"></span>
-    </div>
+    </div>j
     <div class="stage" id="stage" data-device="phone">
       <div class="frame-wrap" id="frame-wrap">
         <iframe id="preview-frame" title="Splash page preview" sandbox="allow-scripts"></iframe>
@@ -336,7 +404,7 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
   // Switching design leaves the page (the unsaved-changes warning still applies).
   $('design-pick').addEventListener('change', (e) => { location.href = e.target.value; });
   const DEVICES = { phone: 390, tablet: 768, desktop: 1280 };
-  const state = { device: 'phone', resident: false, terms: false, scroll: 0, page: 'login' };
+  const state = { device: 'phone', resident: false, terms: false, scroll: 0, page: @json($isAdvertisement ? 'ad' : 'login') };
   let timer = null, seq = 0, controller = null, dirty = false;
 
   /* Scale the device frame to fit the panel */
@@ -420,23 +488,6 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
   }));
   document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 
-  /* Which page the preview shows. Visitor/Resident and Terms only apply to the login page. */
-  function setPage(page) {
-    if (state.page === page) return;
-    state.page = page;
-    state.scroll = 0;
-    $('preview-page-field').value = page;
-    press('[aria-label="Page"]', 'page', page);
-    document.querySelector('[aria-label="Form view"]').hidden = page !== 'login';
-    termsBtn.hidden = page !== 'login';
-    refresh();
-  }
-  document.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => setPage(b.dataset.page)));
-  // Editing a field switches the preview to the page it belongs to.
-  form.addEventListener('focusin', (e) => {
-    if (!e.target.matches('input, textarea, select')) return;
-    setPage(e.target.closest('#ad-fields') ? 'ad' : 'login');
-  });
   termsBtn.addEventListener('click', () => setTerms(!state.terms));
 
   /* Placeholder buttons insert at the cursor in their HTML box */
@@ -457,6 +508,7 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
   }));
 
   /* ---------- Photos and videos ---------- */
+  @if ($isAdvertisement)
   const media = new Map(@json($media).map((m) => [m.id, m]));
   const mediaCfg = @json($mediaConfig);
   const grid = $('media-grid'), mediaMsg = $('media-msg'), bar = $('media-bar'), budgetEl = $('budget');
@@ -484,7 +536,6 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
       + '<div class="acts"><button type="button" class="ins"' + (m.status === 'ready' ? '' : ' disabled') + '>Insert</button>'
       + '<button type="button" class="del" aria-label="Delete ' + esc(m.alt || m.name) + '">Delete</button></div>';
     li.querySelector('.ins').addEventListener('click', () => {
-      setPage('ad');
       adBox.focus();
       adBox.setRangeText('\n' + m.token + '\n', adBox.selectionStart, adBox.selectionEnd, 'end');
       adBox.dispatchEvent(new Event('input', { bubbles: true }));
@@ -590,6 +641,7 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
   }, 4000);
 
   drawMedia();
+  @endif
 
   form.addEventListener('input', (e) => {
     if (e.target.closest('#media-lib')) return; // library inputs aren't part of the saved page
