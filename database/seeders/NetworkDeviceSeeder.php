@@ -14,7 +14,7 @@ class NetworkDeviceSeeder extends Seeder
         // ------------------------------------------------------------------
         // Dependencies — bail out early if the parent records don't exist.
         // ------------------------------------------------------------------
-        $barangays = Barangay::query()->pluck('id')->all();
+        $barangays = Barangay::query()->whereIn('id', [1, 2])->pluck('id')->all();
         $routers   = MikrotikRouter::query()->pluck('id')->all();
 
         if (empty($barangays)) {
@@ -48,7 +48,7 @@ class NetworkDeviceSeeder extends Seeder
             'Multi-Purpose Hall', 'Transport Terminal', 'Sports Complex',
         ];
 
-        $statuses = ['online', 'online', 'online', 'online', 'offline', 'offline', 'unknown'];
+        $statuses = ['online', 'online', 'online', 'online', 'offline'];
 
         // ------------------------------------------------------------------
         // Seed 100 devices.

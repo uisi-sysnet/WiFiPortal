@@ -51,7 +51,7 @@ dialog.modal[open] { display: flex; }
 /* ============================================================
    PAGE LAYOUT
    ============================================================ */
-.page-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; margin-bottom: 0; padding: 12px 16px; background: #fff; border: 2px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; flex: none; }
+.page-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; margin-bottom: 0; padding: 12px 16px; background: color-mix(in srgb, #0e670d 12%, #fff); border: 1px solid color-mix(in srgb, #0e670d 32%, transparent); border: 2px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; flex: none; }
 .page-head h1 { margin: 0; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; text-transform: uppercase; color: var(--ink); }
 .page-head .lede { margin: 0; color: var(--ink-2); font-size: .82rem; }
 .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; border: 2px solid var(--line); border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; box-shadow: 0 1px 3px rgba(10, 20, 26, .04); overflow: hidden; }
@@ -214,7 +214,35 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
   {{-- Page header --}}
   <div class="page-head">
     <h1>Manage {{ $info['plural'] }}</h1>
-    <p class="lede">Checked over SNMP every minute. The dot beside each name shows whether it is online.</p>
+    {{-- <p class="lede">Checked over SNMP every minute. The dot beside each name shows whether it is online.</p> --}}
+    <div class="head-right">
+      <form class="filter-form" method="GET" action="{{ route($info['route'].'.index') }}">
+        <select id="barangay" name="barangay" class="control" onchange="this.form.submit()">
+          <option value="">All barangays</option>
+          @foreach ($barangays as $b)
+            <option value="{{ $b->id }}" @selected($filter === $b->id)>{{ $b->name }}</option>
+          @endforeach
+        </select>
+        <noscript><button class="btn control quiet" type="submit">Show</button></noscript>
+      </form>
+
+      {{-- NEW: Export to Excel --}}
+      <button class="btn control quiet" type="button" onclick="document.getElementById('export-columns').showModal()"
+        title="Choose columns to include in the Excel file">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+            style="margin-right:6px">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Export to Excel
+      </button>
+
+      <a class="btn control primary" href="{{ route($info['route'].'.index', ['add' => 1]) }}" data-open-add>
+        + Add {{ strtolower($info['label']) }}
+      </a>
+    </div>
   </div>
 
   @if (session('status'))
@@ -238,36 +266,6 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
     </div>
   @else
     <div class="panel">
-      <div class="panel-head">
-        <div class="head-right">
-          <form class="filter-form" method="GET" action="{{ route($info['route'].'.index') }}">
-            <select id="barangay" name="barangay" class="control" onchange="this.form.submit()">
-              <option value="">All barangays</option>
-              @foreach ($barangays as $b)
-                <option value="{{ $b->id }}" @selected($filter === $b->id)>{{ $b->name }}</option>
-              @endforeach
-            </select>
-            <noscript><button class="btn control quiet" type="submit">Show</button></noscript>
-          </form>
-
-          {{-- NEW: Export to Excel --}}
-          <button class="btn control quiet" type="button" onclick="document.getElementById('export-columns').showModal()"
-            title="Choose columns to include in the Excel file">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
-                style="margin-right:6px">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Export to Excel
-          </button>
-
-          <a class="btn control primary" href="{{ route($info['route'].'.index', ['add' => 1]) }}" data-open-add>
-            + Add {{ strtolower($info['label']) }}
-          </a>
-        </div>
-      </div>
 
       <dialog class="modal" id="export-columns" aria-labelledby="export-title">
         <form class="modal-form" method="GET" action="{{ route($info['route'].'.export') }}">
