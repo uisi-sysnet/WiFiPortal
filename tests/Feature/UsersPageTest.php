@@ -37,8 +37,9 @@ class UsersPageTest extends TestCase
 
     public function test_menu_opens_the_users_page(): void
     {
-        $this->get('/settings')->assertOk()->assertSee('href="'.route('users.index').'"', false)->assertSee('>Users</a>', false);
-        $this->get('/dashboard')->assertOk()->assertSee('href="'.route('users.index').'">Users</a>', false);
+        $this->get('/settings')->assertOk()->assertSee('href="'.route('users.index').'"', false)->assertSee('<span class="sb-label">Users</span>', false);
+        // The same sidebar on the dashboard
+        $this->get('/dashboard')->assertOk()->assertSee('href="'.route('users.index').'"', false)->assertSee('<span class="sb-label">Users</span>', false);
     }
 
     public function test_lists_everyone_newest_first_with_status(): void

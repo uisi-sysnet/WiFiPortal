@@ -33,6 +33,8 @@ a{color:var(--neon)}
 .brand strong{display:block;font:600 1.2rem/1.1 var(--display);letter-spacing:.02em;color:var(--text)}
 .brand span{display:block;font-size:.8rem;color:var(--muted)}
 .bar nav{display:flex;gap:20px;flex:1}
+.bar-title{flex:1;margin:0;font:600 1.2rem/1.1 var(--display);letter-spacing:.02em;color:var(--text)}
+@media (max-width:900px){.bar{padding-left:68px}}
 .bar nav a{color:var(--muted);text-decoration:none;padding:6px 0;border-bottom:2px solid transparent;white-space:nowrap}
 .bar nav a:hover{color:var(--text)}
 .bar nav a[aria-current="page"]{color:var(--text);border-bottom-color:var(--neon);box-shadow:0 6px 12px -8px var(--neon)}

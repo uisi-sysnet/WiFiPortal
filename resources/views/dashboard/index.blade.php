@@ -23,27 +23,10 @@
 
 @endphp
 
+@include('partials.sidebar', ['theme' => 'dark'])
+
 <header class="bar">
-  <a class="brand" href="{{ route('dashboard') }}">
-    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2CD5FF" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="filter:drop-shadow(0 0 6px rgba(44,213,255,.7))">
-      <path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16.3a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1.3" fill="#2CD5FF" stroke="none"/>
-    </svg>
-    <span><strong>Network Operations</strong><span>Public WiFi Control</span></span>
-  </a>
-  <nav aria-label="Main">
-    <a href="{{ route('dashboard') }}" aria-current="page">Dashboard</a>
-    @if (auth()->user()?->isAdmin())
-      @include('partials.devices-menu')
-    @endif
-    {{-- Same items as the main menu in layouts/app --}}
-    @if (auth()->user()?->hasRole('user'))
-      <a href="{{ route('users.index') }}">Users</a>
-    @endif
-    @if (auth()->user()?->isAdmin())
-      <a href="{{ route('radius') }}">RADIUS</a>
-      <a href="{{ route('splash.edit') }}">Captive portal</a>
-    @endif
-  </nav>
+  <h1 class="bar-title">Network Operations</h1>
   <p class="health" role="status" id="health"><b>{{ $k['routers']['online'] }} of {{ $k['routers']['total'] }}</b> routers online</p>
   <div class="clock"><time id="clock">--:--:--</time><span id="date">Philippine time</span></div>
   @include('partials.account-menu')
