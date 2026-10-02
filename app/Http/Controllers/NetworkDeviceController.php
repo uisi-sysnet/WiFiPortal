@@ -333,6 +333,14 @@ class NetworkDeviceController extends Controller
     public function export(Request $request, string $type)
     {
         $info = NetworkDevice::typeInfo($type);
+        $selectedColumns = $request->input('columns', range(0, 29));
+        if (! is_array($selectedColumns)) {
+            throw ValidationException::withMessages(['columns' => 'Choose columns to export.']);
+        }
+        $selectedColumns = array_values(array_unique(array_filter($selectedColumns, fn ($column) => filter_var($column, FILTER_VALIDATE_INT) !== false && (int) $column >= 0 && (int) $column <= 29)));
+        if (! count($selectedColumns)) {
+            throw ValidationException::withMessages(['columns' => 'Select at least one column to export.']);
+        }
         $filter = $request->integer('barangay') ?: null;
 
         $devices = NetworkDevice::query()
@@ -390,6 +398,7 @@ class NetworkDeviceController extends Controller
             ['Added',            140, fn ($d) => $d->created_at?->toDateTimeString()],
             ['Updated',          140, fn ($d) => $d->updated_at?->toDateTimeString()],
         ];
+        $columns = array_values(array_intersect_key($columns, array_flip($selectedColumns)));
 
         return response()->streamDownload(function () use ($devices, $columns, $info) {
             $out = fopen('php://output', 'w');

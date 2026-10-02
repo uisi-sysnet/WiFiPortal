@@ -573,9 +573,8 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
           </form>
 
           {{-- NEW: Export to Excel --}}
-          <a class="btn control quiet"
-            href="{{ route($info['route'].'.export', array_filter(['barangay' => $filter])) }}"
-            title="Download this list as an Excel file">
+          <button class="btn control quiet" type="button" onclick="document.getElementById('export-columns').showModal()"
+            title="Choose columns to include in the Excel file">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
                 style="margin-right:6px">
@@ -584,13 +583,38 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
             Export to Excel
-          </a>
+          </button>
 
           <a class="btn control primary" href="{{ route($info['route'].'.index', ['add' => 1]) }}" data-open-add>
             + Add {{ strtolower($info['label']) }}
           </a>
         </div>
       </div>
+
+      <dialog class="modal" id="export-columns" aria-labelledby="export-title">
+        <form class="modal-form" method="GET" action="{{ route($info['route'].'.export') }}">
+          <input type="hidden" name="barangay" value="{{ $filter }}">
+          <div class="modal-head">
+            <h2 id="export-title">Choose columns to export</h2>
+            <button type="button" class="modal-x" onclick="document.getElementById('export-columns').close()" aria-label="Close">×</button>
+          </div>
+          <div class="modal-body">
+            <p>Select the fields to include in your Excel file.</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px 16px">
+              @foreach (['No.', 'Device name', 'Type', 'Status', 'Brand', 'Model', 'Firmware', 'MAC address', 'Serial number', 'Barangay', 'Location', 'Latitude', 'Longitude', 'Map link', 'Deployed on', 'Warranty', 'Site router', 'Connected to', 'IP address', 'SNMP port', 'SNMP version', 'Uptime', 'Clients', 'Utilization %', 'Failures', 'Last seen', 'Last checked', 'Last error', 'Added', 'Updated'] as $columnLabel)
+                <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="columns[]" value="{{ $loop->index }}" checked> {{ $columnLabel }}</label>
+              @endforeach
+            </div>
+          </div>
+          <div class="modal-foot">
+            <span class="foot-left">All columns are selected by default.</span>
+            <div class="foot-right">
+              <button type="button" class="btn control quiet" onclick="document.getElementById('export-columns').close()">Cancel</button>
+              <button type="submit" class="btn control primary">Export to Excel</button>
+            </div>
+          </div>
+        </form>
+      </dialog>
 
       {{-- Bulk actions bar --}}
       <form id="bulk-form" method="POST" action="{{ route('devices.bulk') }}">
