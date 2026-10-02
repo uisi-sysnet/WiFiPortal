@@ -318,7 +318,7 @@ table.inventory {
   width: 100%;
   min-width: 1080px;
   border-collapse: collapse;
-  font-size: .82rem;
+  font-size: .70rem;
   table-layout: fixed;
 }
 
@@ -357,17 +357,20 @@ table.inventory .sel input { width: 14px; height: 14px; accent-color: #0e670d; c
 table.inventory .num { width: 44px; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; font-size: .78rem; }
 
 table.inventory th:nth-child(1),  table.inventory td:nth-child(1)  { width: 36px; text-align: center; }
-table.inventory th:nth-child(2),  table.inventory td:nth-child(2)  { width: 44px; text-align: right; }
+table.inventory th:nth-child(2),  table.inventory td:nth-child(2)  { width: 46px; text-align: right; }
 table.inventory th:nth-child(3),  table.inventory td:nth-child(3)  { width: 150px; }
 table.inventory th:nth-child(4),  table.inventory td:nth-child(4)  { width: 96px; }
-table.inventory th:nth-child(5),  table.inventory td:nth-child(5)  { width: 140px; }
+table.inventory th:nth-child(5),  table.inventory td:nth-child(5)  { width: 110px; }
 table.inventory th:nth-child(6),  table.inventory td:nth-child(6)  { width: 130px; }
 table.inventory th:nth-child(7),  table.inventory td:nth-child(7)  { width: 130px; }
 table.inventory th:nth-child(8),  table.inventory td:nth-child(8)  { width: 130px; }
-table.inventory th:nth-child(9),  table.inventory td:nth-child(9)  { width: 100px; }
-table.inventory th:nth-child(10), table.inventory td:nth-child(10) { width: 150px; white-space: normal; }
+table.inventory th:nth-child(9),  table.inventory td:nth-child(9)  { width: 130px; }
+table.inventory th:nth-child(10), table.inventory td:nth-child(10) { width: 110px; }
 table.inventory th:nth-child(11), table.inventory td:nth-child(11) { width: 110px; }
-table.inventory th:nth-child(12), table.inventory td:nth-child(12) { width: 120px; text-align: right; }
+table.inventory th:nth-child(12), table.inventory td:nth-child(12) { width: 150px; white-space: normal; }
+table.inventory th:nth-child(13), table.inventory td:nth-child(13) { width: 120px; }
+table.inventory th:nth-child(14), table.inventory td:nth-child(14) { width: 100px; }
+table.inventory th:nth-child(15), table.inventory td:nth-child(15) { width: 120px; text-align: center; }
 
 table.inventory td { vertical-align: middle; }
 table.inventory td .dev { display: flex; align-items: center; gap: 6px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
@@ -414,7 +417,7 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
   align-items: center;
   height: 26px;
   padding: 0 8px;
-  font-size: .74rem;
+  font-size: .65rem;
   font-weight: 500;
   border-radius: 6px;
   border: 1px solid var(--line);
@@ -493,29 +496,29 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
     color: var(--ink-2);
   }
 
-  table.inventory td:nth-child(3),
-  table.inventory td:nth-child(10),
-  table.inventory td:nth-child(12) {
+  table.inventory td[data-label="Device name"],
+  table.inventory td[data-label="Location"] {
     grid-column: 1 / -1;
   }
 
-  table.inventory td:nth-child(1),
-  table.inventory td:nth-child(2) {
+  table.inventory td[data-label=""],
+  table.inventory td[data-label="No."] {
     flex-direction: row;
     align-items: center;
     gap: 8px;
   }
-  table.inventory td:nth-child(1)::before,
-  table.inventory td:nth-child(2)::before { display: none; }
+  table.inventory td[data-label=""]::before,
+  table.inventory td[data-label="No."]::before { display: none; }
 
-  table.inventory td:nth-child(12) {
+  table.inventory td[data-label="Actions"] {
     border-top: 1px solid var(--line);
     padding-top: 8px;
     margin-top: 4px;
+    grid-column: 1 / -1;
   }
   .acts { justify-content: flex-start; }
 
-  table.inventory td:nth-child(3) .dev { font-size: .95rem; }
+  table.inventory td[data-label="Device name"] .dev { font-size: .95rem; }
 }
 
 @media (max-width: 420px) {
@@ -632,7 +635,7 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
           <p>No {{ strtolower($info['plural']) }} in this barangay yet.</p>
         </div>
       @else
-        <div class="table-wrap">
+        <div class="table-wrap [scrollbar-width:thin]">
           <table class="inventory">
             <thead>
               <tr>
@@ -642,14 +645,17 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                 <th scope="col" class="num">No.</th>
                 <th scope="col">Device name</th>
                 <th scope="col">Status</th>
+                <th scope="col">Brand</th>
                 <th scope="col">Device model</th>
                 <th scope="col">IP address</th>
                 <th scope="col">MAC address</th>
                 <th scope="col">Serial number</th>
                 <th scope="col">Firmware</th>
+                <th scope="col">Warranty</th>
                 <th scope="col">Location</th>
                 <th scope="col">Lat, long</th>
-                <th scope="col"><span class="sr-only">Actions</span></th>
+                <th scope="col">Deployed on</th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -671,16 +677,18 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                     {{ $d->statusLabel() }}
                   </span>
                 </td>
+                <td data-label="Brand">{!! $d->brand ? e($d->brand) : $dash !!}</td>
                 <td data-label="Device model">{!! $d->model ? e($d->model) : $dash !!}</td>
-                <td class="mono" data-label="IP address">{{ $d->host }}@if ($d->snmp_port !== 161):{{ $d->snmp_port }}@endif</td>
-                <td class="mono" data-label="MAC address">{!! $d->mac_address ? e($d->mac_address) : $dash !!}</td>
-                <td class="mono" data-label="Serial number">{!! $d->serial_number ? e($d->serial_number) : $dash !!}</td>
-                <td class="mono" data-label="Firmware">{!! $d->firmware_version ? e($d->firmware_version) : $dash !!}</td>
+                <td data-label="IP address">{{ $d->host }}@if ($d->snmp_port !== 161):{{ $d->snmp_port }}@endif</td>
+                <td data-label="MAC address">{!! $d->mac_address ? e($d->mac_address) : $dash !!}</td>
+                <td data-label="Serial number">{!! $d->serial_number ? e($d->serial_number) : $dash !!}</td>
+                <td data-label="Firmware">{!! $d->firmware_version ? e($d->firmware_version) : $dash !!}</td>
+                <td data-label="Warranty">{!! $d->warranty ? e($d->warranty) : $dash !!}</td>
                 <td data-label="Location" style="white-space:normal; line-height:1.3">
                   {{ $d->barangay_name ?? 'No barangay' }}
                   @if ($d->location)<small>{{ $d->location }}</small>@endif
                 </td>
-                <td class="mono" data-label="Lat, long">
+                <td data-label="Lat, long">
                   @if ($d->hasCoordinates())
                     <a href="{{ $d->mapUrl() }}" target="_blank" rel="noopener" title="Open in Google Maps">
                       {{ (float) $d->latitude }}, {{ (float) $d->longitude }}
@@ -689,6 +697,7 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                     {!! $dash !!}
                   @endif
                 </td>
+                <td data-label="Deployed on">{{ $d->deployed_at?->toDateString() ?? '—' }}</td>
                 <td data-label="Actions">
                   <div class="acts">
                     {{--
