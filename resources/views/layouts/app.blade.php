@@ -113,7 +113,7 @@
               hover:after:opacity-100
               aria-[current=page]:text-[#F2B84B] aria-[current=page]:font-semibold
               aria-[current=page]:after:opacity-100"
-       @if(request()->routeIs('radius')) aria-current="page" @endif>RADIUS</a>
+       @if(request()->routeIs('guest.*')) aria-current="page" @endif>Guest</a>
     <a href="{{ route('splash.edit') }}"
        class="relative inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium
               text-white/90 no-underline transition-all duration-200
@@ -124,7 +124,6 @@
               aria-[current=page]:text-[#F2B84B] aria-[current=page]:font-semibold
               aria-[current=page]:after:opacity-100"
        @if(request()->routeIs('splash.*')) aria-current="page" @endif>Captive portal</a>
-    @endif
   </nav>
 
   {{-- Right: account --}}

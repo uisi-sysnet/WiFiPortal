@@ -30,7 +30,7 @@ class NetworkDeviceController extends Controller
             ->select('network_devices.*', 'barangays.name as barangay_name')
             ->orderByRaw('barangays.name is null, barangays.name')
             ->orderBy('network_devices.name')
-            ->paginate(50)
+            ->paginate(20)
             ->withQueryString();
 
         $counts = NetworkDevice::query()->where('type', $type)
@@ -369,13 +369,26 @@ class NetworkDeviceController extends Controller
     public function export(Request $request, string $type)
     {
         $info = NetworkDevice::typeInfo($type);
+        $selectedColumns = $request->input('columns', range(0, 29));
+        if (! is_array($selectedColumns)) {
+            throw ValidationException::withMessages(['columns' => 'Choose columns to export.']);
+        }
+        $selectedColumns = array_values(array_unique(array_filter($selectedColumns, fn ($column) => filter_var($column, FILTER_VALIDATE_INT) !== false && (int) $column >= 0 && (int) $column <= 29)));
+        if (! count($selectedColumns)) {
+            throw ValidationException::withMessages(['columns' => 'Select at least one column to export.']);
+        }
         $filter = $request->integer('barangay') ?: null;
 
         $devices = NetworkDevice::query()
             ->where('network_devices.type', $type)
             ->when($filter, fn ($q) => $q->where('network_devices.barangay_id', $filter))
             ->leftJoin('barangays', 'barangays.id', '=', 'network_devices.barangay_id')
-            ->select('network_devices.*', 'barangays.name as barangay_name')
+            ->leftJoin('mikrotik_routers', 'mikrotik_routers.id', '=', 'network_devices.mikrotik_router_id')
+            ->select(
+                'network_devices.*',
+                'barangays.name as barangay_name',
+                'mikrotik_routers.name as site_router_name',
+            )
             ->orderByRaw('barangays.name is null, barangays.name')
             ->orderBy('network_devices.name')
             ->get();
@@ -387,29 +400,41 @@ class NetworkDeviceController extends Controller
             $filter ? '-barangay-'.$filter : ''
         );
 
-        $headers = [
-            'No.',
-            'Device name',
-            'Status',
-            'Brand',
-            'Model',
-            'IP address',
-            'Port',
-            'MAC address',
-            'Serial number',
-            'Firmware',
-            'Barangay',
-            'Location',
-            'Latitude',
-            'Longitude',
-            'Site router',
-            'Connected to',
-            'Last checked',
-            'Last error',
+        // Every column we want in the sheet, in display order.
+        // [header, width (px), value-callback]
+        $columns = [
+            ['No.',              40,  fn ($d, $i) => $i + 1],
+            ['Device name',      150, fn ($d) => $d->name],
+            ['Type',             70,  fn ($d) => $d->type === 'ap' ? 'Access point' : 'Switch'],
+            ['Status',           80,  fn ($d) => $d->statusLabel()],
+            ['Brand',            100, fn ($d) => $d->brand],
+            ['Model',            130, fn ($d) => $d->model],
+            ['Firmware',         110, fn ($d) => $d->firmware_version],
+            ['MAC address',      130, fn ($d) => $d->mac_address],
+            ['Serial number',    130, fn ($d) => $d->serial_number],
+            ['Barangay',         120, fn ($d) => $d->barangay_name],
+            ['Location',         180, fn ($d) => $d->location],
+            ['Latitude',         90,  fn ($d) => $d->latitude !== null ? (float) $d->latitude : null],
+            ['Longitude',        90,  fn ($d) => $d->longitude !== null ? (float) $d->longitude : null],
+            ['Map link',         200, fn ($d) => $d->mapUrl()],
+            ['Deployed on',      100, fn ($d) => $d->deployed_at?->toDateString()],
+            ['Warranty',         110, fn ($d) => $d->warranty],
+            ['Site router',      140, fn ($d) => $d->site_router_name],
+            ['Connected to',     160, fn ($d) => $this->uplinkLabel($d)],
+            ['IP address',       120, fn ($d) => $d->host],
+            ['SNMP port',        70,  fn ($d) => $d->snmp_port],
+            ['SNMP version',     80,  fn ($d) => $d->snmp_version],
+            ['Uptime',           100, fn ($d) => $d->uptimeLabel()],
+            ['Clients',          70,  fn ($d) => $d->clients],
+            ['Utilization %',    80,  fn ($d) => $d->utilization],
+            ['Failures',         70,  fn ($d) => $d->failures],
+            ['Last seen',        140, fn ($d) => $d->last_seen_at?->toDateTimeString()],
+            ['Last checked',     140, fn ($d) => $d->last_checked_at?->toDateTimeString()],
+            ['Last error',       220, fn ($d) => $d->last_error],
+            ['Added',            140, fn ($d) => $d->created_at?->toDateTimeString()],
+            ['Updated',          140, fn ($d) => $d->updated_at?->toDateTimeString()],
         ];
-
-        ActivityLog::record('generated', 'Exported the '.strtolower($info['plural']).' list (CSV, '.$devices->count().' rows)',
-            ['type' => 'report', 'label' => $info['plural'].' list']);
+        $columns = array_values(array_intersect_key($columns, array_flip($selectedColumns)));
 
         return response()->streamDownload(function () use ($devices, $headers, $info) {
             $out = fopen('php://output', 'w');
@@ -432,57 +457,28 @@ class NetworkDeviceController extends Controller
             fwrite($out, '<Table>'."\n");
 
             // Column widths
-            $widths = [40, 140, 70, 90, 120, 110, 50, 120, 120, 100, 120, 180, 90, 90, 120, 120, 130, 220];
-            foreach ($widths as $w) {
-                fwrite($out, '<Column ss:Width="'.$w.'"/>');
+            foreach ($columns as [$_, $width, $__]) {
+                fwrite($out, '<Column ss:Width="'.$width.'"/>');
             }
             fwrite($out, "\n");
 
             // Header row
             fwrite($out, '<Row ss:StyleID="hdr">');
-            foreach ($headers as $h) {
-                fwrite($out, '<Cell><Data ss:Type="String">'.htmlspecialchars($h, ENT_XML1).'</Data></Cell>');
+            foreach ($columns as [$header, $_, $__]) {
+                fwrite($out, '<Cell><Data ss:Type="String">'.htmlspecialchars($header, ENT_XML1).'</Data></Cell>');
             }
             fwrite($out, '</Row>'."\n");
 
             // Data rows
             foreach ($devices as $i => $d) {
-                $siteRouter = $d->siteRouter?->name ?? '';
-                $uplink = '';
-                if ($d->uplink_device_id) {
-                    $uplink = 'Switch: '.($d->uplinkDevice?->name ?? $d->uplink_device_id);
-                } elseif ($d->mikrotik_router_id) {
-                    $uplink = 'Router: '.$siteRouter;
-                }
-
-                $cells = [
-                    $i + 1,
-                    $d->name,
-                    $d->statusLabel(),
-                    $d->brand,
-                    $d->model,
-                    $d->host,
-                    $d->snmp_port,
-                    $d->mac_address,
-                    $d->serial_number,
-                    $d->firmware_version,
-                    $d->barangay_name,
-                    $d->location,
-                    $d->latitude,
-                    $d->longitude,
-                    $siteRouter,
-                    $uplink,
-                    $d->last_checked_at?->toDateTimeString(),
-                    $d->last_error,
-                ];
-
                 fwrite($out, '<Row>');
-                foreach ($cells as $cell) {
-                    $isNumeric = is_int($cell) || is_float($cell);
+                foreach ($columns as [$_, $__, $value]) {
+                    $v = $value($d, $i);
+                    $isNumeric = is_int($v) || is_float($v);
                     $type = $isNumeric ? 'Number' : 'String';
-                    $value = $isNumeric ? (string) $cell : (string) ($cell ?? '');
+                    $text = $isNumeric ? (string) $v : (string) ($v ?? '');
                     fwrite($out, '<Cell><Data ss:Type="'.$type.'">'
-                        .htmlspecialchars($value, ENT_XML1)
+                        .htmlspecialchars($text, ENT_XML1)
                         .'</Data></Cell>');
                 }
                 fwrite($out, '</Row>'."\n");
@@ -505,5 +501,17 @@ class NetworkDeviceController extends Controller
             'Cache-Control' => 'no-store, no-cache, must-revalidate',
             'Pragma' => 'no-cache',
         ]);
+    }
+
+    /** Human-readable "Connected to" for the export. */
+    private function uplinkLabel(NetworkDevice $d): ?string
+    {
+        if ($d->uplink_device_id) {
+            return 'Switch: '.($d->uplink?->name ?? $d->uplink_device_id);
+        }
+        if ($d->mikrotik_router_id) {
+            return 'Router: '.($d->router?->name ?? $d->mikrotik_router_id);
+        }
+        return null;
     }
 }
