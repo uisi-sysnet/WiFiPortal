@@ -98,6 +98,7 @@ main .btn:disabled{opacity:.45;cursor:not-allowed}
     <a href="#barangays" data-tab="barangays"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Barangays<span class="st-state">{{ $barangays->count() }}</span></a>
     <a href="#map" data-tab="map"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 4-6 2v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg>Dashboard map</a>
     <span class="st-group">System</span>
+    <a href="#accounts" data-tab="accounts"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 11a3 3 0 1 0 0-6M22 21a6 6 0 0 0-5-6"/></svg>System users<span class="st-state">{{ $accounts->count() }}</span></a>
     <a href="#other" data-tab="other"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Other settings</a>
   </nav>
 
@@ -218,6 +219,8 @@ main .btn:disabled{opacity:.45;cursor:not-allowed}
     </div>
   </form>
 </section>
+
+@include('settings._accounts')
 
 <section class="settings-section" id="other" aria-labelledby="other-title">
   <h2 id="other-title">Other settings</h2>

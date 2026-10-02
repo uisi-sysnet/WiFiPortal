@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Barangay;
 use App\Models\Setting;
+use App\Models\User;
 use App\Services\Notify\NotifySettings;
 use App\Services\Notify\Telegram;
 use App\Services\Portal\AccessValidity;
@@ -28,6 +29,8 @@ class SettingsController extends Controller
             'nextReport' => $report->nextSlot(),
             'reportToTelegram' => $report->toTelegram(),
             'picture' => $picture->config() + ['next' => $picture->nextSlot()],
+            // Administrators first, then users, then viewers
+            'accounts' => User::query()->orderByRaw("case role when 'admin' then 0 when 'user' then 1 else 2 end")->orderBy('name')->get(),
             'envMail' => ['mailer' => config('mail.default'), 'host' => config('mail.mailers.smtp.host'), 'from' => config('mail.from.address')],
             'validity' => collect(AccessValidity::CATEGORIES)->map(fn ($label, $key) => [
                 'label' => $label,

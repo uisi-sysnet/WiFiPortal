@@ -32,18 +32,26 @@
   </a>
   <nav aria-label="Main">
     <a href="{{ route('dashboard') }}" aria-current="page">Dashboard</a>
-    @include('partials.devices-menu')
+    @if (auth()->user()?->isAdmin())
+      @include('partials.devices-menu')
+    @endif
     {{-- Same items as the main menu in layouts/app --}}
-    <a href="{{ route('users.index') }}">Users</a>
-    <a href="{{ route('radius') }}">RADIUS</a>
-    <a href="{{ route('splash.edit') }}">Captive portal</a>
+    @if (auth()->user()?->hasRole('user'))
+      <a href="{{ route('users.index') }}">Users</a>
+    @endif
+    @if (auth()->user()?->isAdmin())
+      <a href="{{ route('radius') }}">RADIUS</a>
+      <a href="{{ route('splash.edit') }}">Captive portal</a>
+    @endif
   </nav>
   <p class="health" role="status" id="health"><b>{{ $k['routers']['online'] }} of {{ $k['routers']['total'] }}</b> routers online</p>
   <div class="clock"><time id="clock">--:--:--</time><span id="date">Philippine time</span></div>
   @include('partials.account-menu')
 </header>
 
-<p class="sample">Users online, routers, switches, access points, the map and the access point grid are live. The event log is still sample data.</p>
+@if (session('denied'))
+  <p class="sample" role="alert" style="color:#FFD7D2;border-color:#FF5470">{{ session('denied') }}</p>
+@endif
 
 <main class="deck">
 

@@ -133,7 +133,7 @@ class UserController extends Controller
             'to.before_or_equal' => 'The end date cannot be in the future.',
         ], ['from' => 'start date', 'to' => 'end date']);
 
-        $data = $reports->data($r, $request->boolean('aps'), $request->user()?->name, $request->user()?->id);
+        $data = $reports->data($r, $request->boolean('aps'), $request->user()?->signature(), $request->user()?->id);
 
         // Image: the same page as HTML; the Users page turns it into a PNG in the browser
         if (($r['format'] ?? 'pdf') === 'png') {
