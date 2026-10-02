@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\GuestController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\NetworkDeviceController;
 use App\Http\Controllers\PortalController;
@@ -52,8 +51,6 @@ Route::middleware('auth')->group(function () {
         Route::get('/users/report.pdf', [UserController::class, 'report'])->name('users.report');
         Route::get('/users/heatmap', [UserController::class, 'heatmap'])->name('users.heatmap');
         Route::get('/users/access-points.csv', [UserController::class, 'apClientsCsv'])->name('users.ap-clients');
-        Route::get('/guests/export', [GuestController::class, 'export'])->name('guests.export');
-        Route::get('/guests', [GuestController::class, 'index'])->name('guests.index');
     });
 
     // Administrator: everything else

@@ -18,7 +18,6 @@
       'dashboard' => '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
       'devices' => '<rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 17.5h.01M10 17.5h.01M12 14V9M8.5 6.5a5 5 0 0 1 7 0M6 4a8.5 8.5 0 0 1 12 0"/>',
       'users' => '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
-      'guest' => '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2.5"/><path d="M5.5 16.5a4 4 0 0 1 7 0M15 9h3M15 13h3"/>',
       'radius' => '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4M12 15v2"/>',
       'portal' => '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>',
       'logs' => '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
@@ -134,7 +133,6 @@ html.sb-collapsed .sb-item:hover::after,html.sb-collapsed .sb-item:focus-visible
     @if ($isUser)
       <p class="sb-sec">Hotspot users</p>
       <a class="sb-item" href="{{ route('users.index') }}" data-tip="Users" {{ $cur('users.*') }}>{!! $icon($icons['users']) !!}<span class="sb-label">Users</span></a>
-      <a class="sb-item" href="{{ route('guests.index') }}" data-tip="Guest" {{ $cur('guests.*') }}>{!! $icon($icons['guest']) !!}<span class="sb-label">Guest</span></a>
     @endif
 
     @if ($isAdmin)
