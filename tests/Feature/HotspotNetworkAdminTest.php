@@ -46,8 +46,9 @@ class HotspotNetworkAdminTest extends TestCase
         $this->get('/routers/create')->assertOk()->assertSee('Hotspot networks')->assertSee('Main portal');
         $this->get('/routers')->assertOk()->assertSee('School WiFi');
         $this->get("/routers/{$router->id}")->assertOk()->assertSee('School WiFi')->assertSee('Add hotspot network');
-        $this->get('/splash')->assertRedirect('/splash/'.SplashPage::current()->id);
-        $this->get('/splash/'.SplashPage::current()->id)->assertOk()->assertSee('shown on')->assertSee('site-a / Public WiFi');
+        $this->get('/splash')->assertRedirect(route('splash.login')); // the login page editor opens first
+        $this->get('/splash/'.SplashPage::current()->id)->assertRedirect(route('splash.login.design', SplashPage::current()));
+        $this->get(route('splash.login.design', SplashPage::current()))->assertOk()->assertSee('shown on')->assertSee('site-a / Public WiFi');
     }
 
     public function test_router_is_added_with_several_networks(): void

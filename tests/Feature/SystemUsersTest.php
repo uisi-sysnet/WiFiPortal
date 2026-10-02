@@ -23,7 +23,7 @@ class SystemUsersTest extends TestCase
         $this->getJson('/dashboard/map-data')->assertOk();
         $this->get('/dashboard/map')->assertOk();
 
-        foreach (['/users', '/users/report.pdf?range=day', '/users/heatmap', '/settings', '/radius', '/logs', '/routers', '/access-points', '/splash'] as $url) {
+        foreach (['/users', '/guests', '/users/report.pdf?range=day', '/users/heatmap', '/settings', '/radius', '/logs', '/routers', '/access-points', '/splash'] as $url) {
             $this->get($url)->assertRedirect(route('dashboard'));
         }
         $this->get('/settings')->assertSessionHas('denied');
@@ -40,6 +40,7 @@ class SystemUsersTest extends TestCase
         $this->get('/users/report.pdf?range=day')->assertOk()->assertHeader('Content-Type', 'application/pdf');
         $this->get('/users/heatmap')->assertOk();
         $this->get('/users/access-points.csv')->assertOk();
+        $this->get('/guests')->assertOk();
 
         foreach (['/settings', '/radius', '/logs', '/routers', '/access-points', '/switches', '/splash'] as $url) {
             $this->get($url)->assertRedirect(route('dashboard'));
@@ -50,7 +51,7 @@ class SystemUsersTest extends TestCase
     {
         $this->actingAs(User::factory()->create(['role' => 'admin']));
 
-        foreach (['/dashboard', '/users', '/settings', '/radius', '/logs', '/routers', '/access-points'] as $url) {
+        foreach (['/dashboard', '/users', '/guests', '/settings', '/radius', '/logs', '/routers', '/access-points', '/splash/login', '/splash/advertisement'] as $url) {
             $this->get($url)->assertOk();
         }
         $this->get('/dashboard')->assertSee(route('radius'), false)->assertSee(route('settings'), false);

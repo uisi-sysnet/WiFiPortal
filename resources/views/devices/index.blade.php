@@ -318,7 +318,8 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                 <th scope="col" class="num">No.</th>
                 <th scope="col">Device name</th>
                 <th scope="col">Status</th>
-                <th scope="col">Brand and model</th>
+                <th scope="col">Brand</th>
+                <th scope="col">Device model</th>
                 <th scope="col">IP address</th>
                 <th scope="col">MAC address</th>
                 <th scope="col">Serial number</th>
@@ -349,11 +350,13 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
                     {{ $d->statusLabel() }}
                   </span>
                 </td>
+                <td data-label="Brand">{!! $d->brand ? e($d->brand) : $dash !!}</td>
                 <td data-label="Device model">{!! $d->model ? e($d->model) : $dash !!}</td>
-                <td class="mono" data-label="IP address">{{ $d->host }}@if ($d->snmp_port !== 161):{{ $d->snmp_port }}@endif</td>
-                <td class="mono" data-label="MAC address">{!! $d->mac_address ? e($d->mac_address) : $dash !!}</td>
-                <td class="mono" data-label="Serial number">{!! $d->serial_number ? e($d->serial_number) : $dash !!}</td>
-                <td class="mono" data-label="Firmware">{!! $d->firmware_version ? e($d->firmware_version) : $dash !!}</td>
+                <td data-label="IP address">{{ $d->host }}@if ($d->snmp_port !== 161):{{ $d->snmp_port }}@endif</td>
+                <td data-label="MAC address">{!! $d->mac_address ? e($d->mac_address) : $dash !!}</td>
+                <td data-label="Serial number">{!! $d->serial_number ? e($d->serial_number) : $dash !!}</td>
+                <td data-label="Firmware">{!! $d->firmware_version ? e($d->firmware_version) : $dash !!}</td>
+                <td data-label="Warranty">{!! $d->warranty ? e($d->warranty) : $dash !!}</td>
                 <td data-label="Location" style="white-space:normal; line-height:1.3">
                   {{ $d->barangay_name ?? 'No barangay' }}
                   @if ($d->location)<small>{{ $d->location }}</small>@endif

@@ -101,7 +101,8 @@ class DeviceLinksTest extends TestCase
         $ap = NetworkDevice::where('name', 'AP-1')->sole();
 
         $this->assertSame('Ubiquiti', $ap->brand);
-        $this->get('/access-points')->assertOk()->assertSee('Ubiquiti U6-Pro')->assertSee('<option value="Ubiquiti">', false);
+        // Brand and Device model columns; brands already used are suggested in the Add pop-up
+        $this->get('/access-points')->assertOk()->assertSeeInOrder(['Ubiquiti', 'U6-Pro'])->assertSee('<option value="Ubiquiti">', false);
         $this->get("/devices/{$ap->id}/edit")->assertOk()->assertSee('value="Ubiquiti"', false);
         $map = collect($this->getJson('/dashboard/map-data')->json('devices'))->firstWhere('key', "ap:{$ap->id}");
         $this->assertSame('Ubiquiti U6-Pro', $map['model']);

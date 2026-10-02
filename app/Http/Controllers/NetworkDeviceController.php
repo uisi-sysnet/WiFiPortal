@@ -436,7 +436,10 @@ class NetworkDeviceController extends Controller
         ];
         $columns = array_values(array_intersect_key($columns, array_flip($selectedColumns)));
 
-        return response()->streamDownload(function () use ($devices, $headers, $info) {
+        ActivityLog::record('generated', 'Exported the '.strtolower($info['plural']).' list (CSV, '.$devices->count().' rows)',
+            ['type' => 'report', 'label' => $info['plural'].' list']);
+
+        return response()->streamDownload(function () use ($devices, $columns, $info) {
             $out = fopen('php://output', 'w');
 
             // XML header + Workbook/Worksheet so Excel opens it as a real spreadsheet

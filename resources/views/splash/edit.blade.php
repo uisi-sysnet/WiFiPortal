@@ -405,7 +405,7 @@ textarea.code{border-color:color-mix(in srgb,#0e670d 55%,#fff)}
   // Switching design leaves the page (the unsaved-changes warning still applies).
   $('design-pick').addEventListener('change', (e) => { location.href = e.target.value; });
   const DEVICES = { phone: 390, tablet: 768, desktop: 1280 };
-  const state = { device: 'phone', category: 'visitor', terms: false, scroll: 0, page: 'login' };
+  const state = { device: 'phone', category: 'visitor', terms: false, scroll: 0, page: @json($isAdvertisement ? 'ad' : 'login') };
   let timer = null, seq = 0, controller = null, dirty = false;
 
   /* Scale the device frame to fit the panel */
