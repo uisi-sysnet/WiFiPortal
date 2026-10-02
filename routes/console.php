@@ -120,3 +120,12 @@ Artisan::command('radius:prune', function (\App\Services\Radius\RadiusLog $radiu
 })->purpose('Delete old RADIUS login attempts and sessions');
 
 Schedule::command('radius:prune')->dailyAt('03:40');
+
+// php artisan activity:prune  (daily: user activity older than ACTIVITY_LOG_DAYS, default 3 years)
+Artisan::command('activity:prune', function () {
+    $days = (int) config('hotspot.activity_log_days');
+    $n = \App\Models\ActivityLog::query()->where('created_at', '<', now()->subDays($days))->delete();
+    $this->info("Deleted {$n} activity log entr".($n === 1 ? 'y' : 'ies')." older than {$days} days.");
+})->purpose('Delete user activity log entries past their keep time');
+
+Schedule::command('activity:prune')->dailyAt('03:50');

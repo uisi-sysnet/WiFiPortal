@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,13 @@ use Illuminate\Notifications\Notifiable;
  */
 class User extends Authenticatable
 {
+    use LogsActivity;
+
+    public function activityType(): string
+    {
+        return 'system user';
+    }
+
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 

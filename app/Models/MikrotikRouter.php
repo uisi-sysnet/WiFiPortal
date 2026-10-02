@@ -2,11 +2,30 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MikrotikRouter extends Model
 {
+    use LogsActivity;
+
+    public function activityType(): string
+    {
+        return 'router';
+    }
+
+    /** Read from the router or assigned by the system when it is added, not typed by anyone. */
+    public function activityIgnore(): array
+    {
+        $pools = [];
+        foreach (['lan', 'mgmt', 'test'] as $net) {
+            array_push($pools, "{$net}_subnet", "{$net}_gateway", "{$net}_pool_start", "{$net}_pool_end");
+        }
+
+        return ['identity', 'board_name', 'ros_version', 'block_index', ...$pools];
+    }
+
     public const STATUS_PENDING = 'pending';
     public const STATUS_PROVISIONING = 'provisioning';
     public const STATUS_ONLINE = 'online';

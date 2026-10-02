@@ -124,9 +124,9 @@ class NotificationsTest extends TestCase
 
         $this->get('/dashboard')->assertOk()->assertSeeInOrder(['Router SUC-03 is back online', 'Access point CUP-AP-031 went offline'])
             ->assertDontSee('Router TUN-07 stopped answering'); // the old sample data
-        $this->get('/logs')->assertOk()->assertSee('near the church');
-        $this->get('/logs?level=ok')->assertOk()->assertSee('SUC-03')->assertDontSee('CUP-AP-031');
-        $this->get('/logs?q=cupang')->assertOk()->assertSee('CUP-AP-031')->assertDontSee('SUC-03');
+        $this->get('/logs?tab=events')->assertOk()->assertSee('near the church');
+        $this->get('/logs?tab=events&level=ok')->assertOk()->assertSee('SUC-03')->assertDontSee('CUP-AP-031');
+        $this->get('/logs?tab=events&q=cupang')->assertOk()->assertSee('CUP-AP-031')->assertDontSee('SUC-03');
     }
 
     /* ---------- Telegram ---------- */

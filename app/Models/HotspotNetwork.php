@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use App\Services\Mikrotik\HotspotProvisioner;
 use App\Services\Mikrotik\SubnetAllocator;
 use Illuminate\Database\Eloquent\Model;
@@ -23,6 +24,19 @@ use Illuminate\Support\Str;
  */
 class HotspotNetwork extends Model
 {
+    use LogsActivity;
+
+    public function activityType(): string
+    {
+        return 'hotspot network';
+    }
+
+    /** Design names instead of ids in the activity log. */
+    public function activityValue(string $field, mixed $v): mixed
+    {
+        return in_array($field, ['login_page_id', 'ad_page_id'], true) ? (SplashPage::find($v)?->name ?? "#{$v}") : $v;
+    }
+
     public const LOGIN_MODES = [
         'portal' => 'Captive portal from this system',
         'custom' => 'Custom URL (external portal)',

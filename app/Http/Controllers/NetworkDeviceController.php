@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Jobs\PollNetworkDevices;
 use App\Models\Barangay;
 use App\Models\MikrotikRouter;
@@ -125,6 +126,7 @@ class NetworkDeviceController extends Controller
         }
 
         PollNetworkDevices::dispatch($devices->pluck('id')->all());
+        ActivityLog::record('checked', "Checked {$n} {$label} now", ['type' => 'devices', 'label' => $devices->pluck('name')->take(20)->join(', ')]);
 
         return back()->with('status', "Checking {$n} {$label} now. Refresh in a moment to see the results.");
     }
@@ -184,6 +186,7 @@ class NetworkDeviceController extends Controller
     public function check(NetworkDevice $device, SnmpProbe $probe)
     {
         $probe->refresh($device);
+        ActivityLog::record('checked', 'Checked '.$device->activityTypeName().' '.$device->name.' now: '.$device->status, $device->activitySubject());
 
         return back()->with('status', $device->status === 'online'
             ? "{$device->name} is online."
@@ -404,6 +407,9 @@ class NetworkDeviceController extends Controller
             'Last checked',
             'Last error',
         ];
+
+        ActivityLog::record('generated', 'Exported the '.strtolower($info['plural']).' list (CSV, '.$devices->count().' rows)',
+            ['type' => 'report', 'label' => $info['plural'].' list']);
 
         return response()->streamDownload(function () use ($devices, $headers, $info) {
             $out = fopen('php://output', 'w');

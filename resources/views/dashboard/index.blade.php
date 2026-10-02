@@ -133,7 +133,7 @@
   <section class="panel events" aria-labelledby="events-title">
     <div class="panel-head">
       <h2 id="events-title">Recent events</h2>
-      <p>@if (auth()->user()?->isAdmin())<a href="{{ route('logs') }}" style="color:inherit">Last 24 hours &rsaquo; all</a>@else Last 24 hours @endif</p>
+      <p>@if (auth()->user()?->isAdmin())<a href="{{ route('logs', ['tab' => 'events']) }}" style="color:inherit">Last 24 hours &rsaquo; all</a>@else Last 24 hours @endif</p>
     </div>
     <ul class="log">
       @forelse ($events as $e)

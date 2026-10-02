@@ -2,12 +2,31 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
 /** A photo or video used on the advertisement page, stored already optimized. */
 class PortalMedia extends Model
 {
+    use LogsActivity;
+
+    public function activityType(): string
+    {
+        return 'portal photo or video';
+    }
+
+    public function activityLabel(): string
+    {
+        return (string) ($this->original_name ?: '#'.$this->id);
+    }
+
+    /** Set while the file is processed, not by anyone. */
+    public function activityIgnore(): array
+    {
+        return ['path', 'poster_path', 'source_path', 'bytes', 'poster_bytes', 'width', 'height', 'duration', 'status', 'error'];
+    }
+
     protected $table = 'portal_media';
 
     protected $fillable = [

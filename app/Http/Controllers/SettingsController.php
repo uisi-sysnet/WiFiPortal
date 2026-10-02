@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Barangay;
 use App\Models\Setting;
 use App\Models\User;
@@ -62,11 +63,13 @@ class SettingsController extends Controller
             'zoom.between' => 'Zoom goes from 3 (a whole region) to 19 (a single building).',
         ]);
 
+        $before = ['latitude' => Setting::read('map.latitude'), 'longitude' => Setting::read('map.longitude'), 'zoom' => Setting::read('map.zoom')];
         Setting::write([
             'map.latitude' => $data['latitude'] ?? null,
             'map.longitude' => $data['longitude'] ?? null,
             'map.zoom' => $data['zoom'] ?? null,
         ]);
+        ActivityLog::settings('dashboard map', $before, ['latitude' => $data['latitude'] ?? null, 'longitude' => $data['longitude'] ?? null, 'zoom' => $data['zoom'] ?? null]);
 
         return redirect()->to(route('settings').'#map')->with('status', isset($data['latitude'])
             ? 'The dashboard map now opens on that spot.'
@@ -95,9 +98,12 @@ class SettingsController extends Controller
             '*.min' => 'At least 1.',
         ]);
 
+        $snapshot = fn () => collect(AccessValidity::CATEGORIES)->mapWithKeys(fn ($label, $key) => [$label => $validity->label($key)])->all();
+        $before = $snapshot();
         foreach (array_keys(AccessValidity::CATEGORIES) as $key) {
             $validity->set($key, (int) $data["{$key}_amount"], $data["{$key}_unit"]);
         }
+        ActivityLog::settings('internet access time', $before, $snapshot());
 
         return redirect()->to(route('settings').'#validity')
             ->with('status', 'Access time saved. It applies to everyone who registers from now on.');
@@ -127,7 +133,9 @@ class SettingsController extends Controller
             return back()->withErrors(['token' => 'Enter the bot token.'], 'telegram')->withInput();
         }
 
+        $before = $notify->telegram();
         $notify->saveTelegram($request->boolean('enabled'), $data['token'] ?? null, $data['chats'], $data['events'] ?? []);
+        ActivityLog::settings('Telegram', $before, $notify->telegram());
 
         return redirect()->to(route('settings').'#telegram')->with('status', $request->boolean('enabled')
             ? 'Telegram alerts are on.' : 'Telegram settings saved. Alerts are off.');
@@ -140,6 +148,7 @@ class SettingsController extends Controller
         try {
             $n = $telegram->send("✅ <b>Public WiFi Control</b>\nTest message from ".e($request->user()?->name ?? 'Settings').'. Telegram alerts will arrive in this chat.',
                 $chats, $request->input('token') ?: null);
+            ActivityLog::record('sent', 'Sent a Telegram test message to '.implode(', ', $chats), ['type' => 'settings', 'label' => 'Telegram']);
         } catch (Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -188,7 +197,9 @@ class SettingsController extends Controller
             return back()->withErrors(['enabled' => 'Tick the AM report, the PM report, or both.'], 'picture')->withInput();
         }
 
+        $before = array_diff_key($picture->config(), ['times' => 1]);
         $picture->save($request->boolean('enabled'), $data['am_time'], $data['pm_time'], $request->boolean('am_on'), $request->boolean('pm_on'), $data['period']);
+        ActivityLog::settings('network status picture', $before, array_diff_key($picture->config(), ['times' => 1]));
         $c = $picture->config();
 
         return redirect()->to(route('settings').'#telegram')->with('status', $c['enabled']
@@ -202,13 +213,17 @@ class SettingsController extends Controller
     {
         $period = $request->validate(['period' => ['nullable', 'in:'.implode(',', array_keys(TelegramPictureReport::PERIODS))]])['period'] ?? null;
 
-        return response($picture->picture($period), 200, ['Content-Type' => 'image/png', 'Cache-Control' => 'no-store']);
+        $png = $picture->picture($period);
+        ActivityLog::record('generated', 'Previewed the network status picture', ['type' => 'report', 'label' => 'Network status picture']);
+
+        return response($png, 200, ['Content-Type' => 'image/png', 'Cache-Control' => 'no-store']);
     }
 
     public function sendPictureReport(TelegramPictureReport $picture)
     {
         try {
             $n = $picture->send();
+            ActivityLog::record('sent', 'Sent the network status picture to Telegram now ('.$n.' '.($n === 1 ? 'chat' : 'chats').')', ['type' => 'report', 'label' => 'Network status picture']);
         } catch (Throwable $e) {
             return redirect()->to(route('settings').'#telegram')->with('error', 'The picture was not sent. '.$e->getMessage());
         }
@@ -232,7 +247,9 @@ class SettingsController extends Controller
             'host.regex' => 'Enter the mail server name, like smtp.gmail.com.',
             'from_address.required_with' => 'Enter the address the reports come from.',
         ]);
+        $before = $notify->mail();
         $notify->saveMail($data);
+        ActivityLog::settings('email (mail server)', $before, $notify->mail());
 
         return redirect()->to(route('settings').'#mail')->with('status', ! empty($data['host'])
             ? 'Mail server saved. Send a test email to check it.'
@@ -247,6 +264,7 @@ class SettingsController extends Controller
             $notify->applyMail();
             Mail::raw("This is a test email from Public WiFi Control.\n\nIf you can read this, scheduled reports will reach this address.\n\nSystem developed by Uplink Integrated Solutions Inc. - System & Network Department",
                 fn ($m) => $m->to($to)->subject('Test email | Public WiFi Control'));
+            ActivityLog::record('sent', 'Sent a test email to '.$to, ['type' => 'settings', 'label' => 'Email']);
         } catch (Throwable $e) {
             return response()->json(['message' => $report->explainMail($e)], 422);
         }
@@ -277,7 +295,9 @@ class SettingsController extends Controller
             return back()->withErrors(['recipients' => 'Add at least one email address, or switch on reports in the Telegram section.'], 'report')->withInput();
         }
 
+        $before = $notify->report();
         $notify->saveReport($data + ['enabled' => $request->boolean('enabled'), 'aps' => $request->boolean('aps')]);
+        ActivityLog::settings('automatic report', $before, $notify->report());
         $report->markSent(); // count from the next time, not the one that just passed
 
         return redirect()->to(route('settings').'#report')->with('status', $request->boolean('enabled')
@@ -289,6 +309,7 @@ class SettingsController extends Controller
     {
         try {
             $r = $report->send();
+            ActivityLog::record('sent', 'Sent the network report now ('.$r['emailed'].' email, '.$r['telegram'].' Telegram)', ['type' => 'report', 'label' => 'Network report']);
         } catch (Throwable $e) {
             return redirect()->to(route('settings').'#report')->with('error', 'The report was not sent. '.$e->getMessage());
         }

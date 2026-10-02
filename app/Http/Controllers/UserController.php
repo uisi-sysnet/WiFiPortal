@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\HotspotGuest;
 use App\Models\Barangay;
 use App\Models\HotspotNetwork;
@@ -79,6 +80,9 @@ class UserController extends Controller
         $rows = $apReport->perAp($window, $r['barangay'] ?? null);
         $tz = (string) config('hotspot.history.timezone');
 
+        ActivityLog::record('generated', 'Downloaded clients per access point (CSV): '.strtolower($window['title']),
+            ['type' => 'report', 'label' => 'Clients per access point'], ['period' => [null, $window['title']], 'access points' => [null, count($rows)]]);
+
         return response()->streamDownload(function () use ($rows, $tz, $window) {
             $out = fopen('php://output', 'w');
             fputcsv($out, ['Clients per access point: '.$window['title']]);
@@ -134,6 +138,17 @@ class UserController extends Controller
         ], ['from' => 'start date', 'to' => 'end date']);
 
         $data = $reports->data($r, $request->boolean('aps'), $request->user()?->signature(), $request->user()?->id);
+        $format = ($r['format'] ?? 'pdf') === 'png' ? 'image (PNG)' : 'PDF';
+        ActivityLog::record('generated', 'Generated the users report: '.$format.', '.strtolower($data['stats']['title']),
+            ['type' => 'report', 'label' => 'Users report'],
+            array_filter([
+                'period' => [null, $data['stats']['title']],
+                'format' => [null, $format],
+                'reference' => [null, $data['reference']],
+                'clients per access point' => $request->boolean('aps') ? [null, 'yes'] : null,
+                'hotspot network' => $data['network'] ? [null, $data['network']->name] : null,
+                'type of user' => isset($r['type']) ? [null, $r['type']] : null,
+            ]));
 
         // Image: the same page as HTML; the Users page turns it into a PNG in the browser
         if (($r['format'] ?? 'pdf') === 'png') {

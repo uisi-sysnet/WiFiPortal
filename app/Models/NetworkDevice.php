@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Carbon\CarbonInterval;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,6 +10,26 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class NetworkDevice extends Model
 {
+    use LogsActivity;
+
+    public function activityType(): string
+    {
+        return $this->type === 'switch' ? 'switch' : 'access point';
+    }
+
+    /** Names instead of ids in the activity log. */
+    public function activityValue(string $field, mixed $v): mixed
+    {
+        return match ($field) {
+            'type' => self::TYPES[$v]['label'] ?? $v,
+            'barangay_id' => Barangay::find($v)?->name ?? "#{$v}",
+            'mikrotik_router_id' => MikrotikRouter::find($v)?->name ?? "#{$v}",
+            'uplink_device_id' => self::find($v)?->name ?? "#{$v}",
+            'clients_mode' => $v === 'count' ? 'a row per client' : 'a count per radio',
+            default => $v,
+        };
+    }
+
     public const TYPES = [
         'ap' => ['label' => 'Access point', 'plural' => 'Access points', 'route' => 'aps'],
         'switch' => ['label' => 'Switch', 'plural' => 'Switches', 'route' => 'switches'],

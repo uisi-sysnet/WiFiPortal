@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Jobs\ProvisionHotspot;
 use App\Models\CapacityAlert;
 use App\Models\HotspotNetwork;
@@ -344,6 +345,7 @@ class RouterController extends Controller
     {
         $router->forceFill(['status' => MikrotikRouter::STATUS_PENDING, 'last_error' => null])->save();
         ProvisionHotspot::dispatch($router);
+        ActivityLog::record('provisioned', 'Re-applied the configuration of router '.$router->name, $router->activitySubject());
 
         return redirect()
             ->route('routers.show', $router)

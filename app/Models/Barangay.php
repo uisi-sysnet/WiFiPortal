@@ -2,11 +2,19 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Barangay extends Model
 {
+    use LogsActivity;
+
+    public function activityType(): string
+    {
+        return 'barangay';
+    }
+
     protected $fillable = ['name'];
 
     public function devices(): HasMany

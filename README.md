@@ -355,6 +355,28 @@ can't be deleted or demoted. Reports print "at the request of <full name>, <posi
 <department>" for whoever generated them. `php artisan wifi:make-admin` creates or resets an
 administrator; accounts that existed before roles were added became administrators.
 
+## Logs: user activity
+
+**Logs > User activity** (administrators) records what people did, each entry with its own
+**Log ID** (`activity_logs.id`, shown as #123): who (name and role, kept even after the account
+is deleted), when, from which IP address, what, and the details.
+
+- **Added / Edited / Deleted:** access points, switches, routers, hotspot networks, barangays,
+  captive portal designs, portal photos and videos, system users. Edits list each changed
+  field (old -> new), with names instead of ids.
+- **Changed settings:** access time, Telegram, status picture, email, automatic report, map:
+  only what changed.
+- **Generated report / Sent:** users report (PDF or PNG, with its reference no.), CSV exports,
+  status picture previews, reports and pictures sent now, test messages and emails.
+- **Configured router / Checked now:** re-applying a router's configuration, checking devices.
+- **Signed in / Signed out / Failed sign-in.**
+
+Not logged: opening pages, and changes the system makes by itself (device status from the
+pollers, provisioning steps); those are under **Network events**. Passwords, the SNMP
+community, the bot token and other secrets are never written: they show as "(changed)".
+Filter by user, action, type, dates or text (including "#123"); **Download CSV** exports what
+is shown, and is logged too. Entries are kept `ACTIVITY_LOG_DAYS` (default 1095, 3 years).
+
 ## Events, Telegram alerts and the automatic report
 
 Every change of state is logged (**Logs**, and **Recent events** on the dashboard): a router

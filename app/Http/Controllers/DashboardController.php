@@ -304,25 +304,4 @@ class DashboardController extends Controller
             ->map(fn (SystemEvent $e) => ['time' => $e->created_at->copy()->setTimezone($tz)->format('H:i'), 'level' => $e->level, 'text' => $e->title])
             ->all();
     }
-
-    /** Logs: every event, newest first, filtered by level, kind and text. */
-    public function logs(Request $request)
-    {
-        $f = $request->validate([
-            'level' => ['nullable', 'in:'.implode(',', array_keys(SystemEvent::LEVELS))],
-            'kind' => ['nullable', 'in:'.implode(',', array_keys(SystemEvent::KINDS))],
-            'q' => ['nullable', 'string', 'max:100'],
-        ]);
-
-        $events = SystemEvent::query()
-            ->when($f['level'] ?? null, fn ($q, $v) => $q->where('level', $v))
-            ->when($f['kind'] ?? null, fn ($q, $v) => $q->where('kind', $v))
-            ->when($f['q'] ?? null, fn ($q, $v) => $q->where(fn ($w) => $w
-                ->whereRaw('lower(title) like ?', ['%'.mb_strtolower($v).'%'])
-                ->orWhereRaw('lower(detail) like ?', ['%'.mb_strtolower($v).'%'])))
-            ->latest('id')
-            ->paginate(100)->withQueryString();
-
-        return view('logs.index', ['events' => $events, 'filters' => $f]);
-    }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
@@ -14,6 +15,13 @@ use Illuminate\Support\Str;
  */
 class SplashPage extends Model
 {
+    use LogsActivity;
+
+    public function activityType(): string
+    {
+        return 'captive portal design';
+    }
+
     public const PLACEHOLDERS = [
         '[[form]]' => 'The login form and Terms pop-up (required)',
         '[[site_name]]' => 'Site name set below',

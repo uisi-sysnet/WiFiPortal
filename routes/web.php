@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\LogController;
 use App\Http\Controllers\NetworkDeviceController;
 use App\Http\Controllers\PortalController;
 use App\Http\Controllers\PortalMediaController;
@@ -74,7 +75,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/settings/barangays', [SettingsController::class, 'storeBarangay'])->name('barangays.store');
         Route::put('/settings/barangays/{barangay}', [SettingsController::class, 'updateBarangay'])->name('barangays.update');
         Route::delete('/settings/barangays/{barangay}', [SettingsController::class, 'destroyBarangay'])->name('barangays.destroy');
-        Route::get('/logs', [DashboardController::class, 'logs'])->name('logs');
+        Route::get('/logs', [LogController::class, 'index'])->name('logs');
+        Route::get('/logs/activity.csv', [LogController::class, 'activityCsv'])->name('logs.activity-csv');
         Route::get('/radius', [RadiusController::class, 'index'])->name('radius');
 
         // Access points and switches (SNMP monitoring). The type comes from the URL.

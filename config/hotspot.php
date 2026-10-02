@@ -129,6 +129,9 @@ return [
     ],
 
     // "Users online" chart: `users:snapshot` saves the total every 5 minutes.
+    // Logs > User activity is kept this long (days)
+    'activity_log_days' => (int) env('ACTIVITY_LOG_DAYS', 1095),
+
     'history' => [
         'keep_days' => (int) env('USER_HISTORY_DAYS', 400),           // a little over a year
         'timezone' => env('DASHBOARD_TIMEZONE', 'Asia/Manila'),      // hours, days and months on the chart
