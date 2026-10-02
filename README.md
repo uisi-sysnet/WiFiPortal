@@ -310,6 +310,103 @@ The top row is live: **Users online**, **Routers**, **Switches**, **Access point
 Sub-minute polling needs the scheduler cron from `deploy/` (Laravel keeps `schedule:run`
 alive for the rest of the minute) and running queue workers.
 
+## Clients per access point and heat map
+
+Every minute `devices:poll` also asks each online access point how many clients are connected.
+There is no standard SNMP value for this, so it tries the AP's brand first:
+
+| Brand | OID |
+|---|---|
+| Ubiquiti UniFi | `1.3.6.1.4.1.41112.1.6.1.2.1.8` (unifiVapNumStations, added up per SSID/radio) |
+| Ubiquiti airMAX | `1.3.6.1.4.1.41112.1.4.5.1.15` (ubntWlStatStaCount) |
+| MikroTik | `1.3.6.1.4.1.14988.1.1.1.3.1.6` (mtxrWlApClientCount) |
+
+Any other brand: on the AP's **Edit > SNMP > Client count OID**, enter the OID from the
+vendor's MIB, and whether it gives a count per radio (added up) or a row per client (rows
+counted). Find it with `snmpwalk -v2c -c <community> <ap-ip> <oid>`. **Test SNMP** shows the
+count before you save. An AP that answers none of them is tried again every hour
+(`AP_CLIENTS_RETRY_MINUTES`). More brands go in `config/devices.php` (`client_oids`).
+
+Counts are logged per AP per hour (average and peak) in `ap_client_stats`, kept for
+`AP_CLIENT_STATS_DAYS` (default 730) and pruned daily.
+
+- **Users page > Clients per access point:** every AP for the period chosen at the top (Day to
+  All): clients now, average, peak and when, share of all clients; busiest hour; CSV download.
+- **Report export:** tick "Add clients per access point" for a second page (top 40 APs).
+- **Heat map** (Users > Heat map): average or peak clients over a period or date range, or
+  clients now, per barangay or all; busiest barangays and APs; Print. APs need a map position.
+- **Dashboard map:** the **Heat** checkbox overlays clients connected now; AP pop-ups show clients.
+
+## Events, Telegram alerts and the automatic report
+
+Every change of state is logged (**Logs**, and **Recent events** on the dashboard): a router
+stops answering or comes back, an access point or switch goes offline or comes back (after
+`SNMP_OFFLINE_AFTER` missed checks, so one lost packet is not an alarm), a router or network
+gets busy, full, or back to normal, and reports sent.
+
+**Telegram** (Settings > Telegram alerts): create a bot with @BotFather, send `/start` to it
+(or add it to your team's group), paste the token, press **Find chats**, pick the chat, save,
+and **Send test message**. `notify:send` runs every minute and puts everything new into one
+message, so 200 access points going down at once is one message. Choose which events are
+sent. If Telegram can't be reached the events wait and are retried; ones older than 6 hours
+are dropped. The server needs HTTPS out to `api.telegram.org`. The token is stored encrypted.
+
+**Network status picture** (Settings > Telegram > Network status picture): a troubleshooting
+report as one picture (1080 px wide, made on the server with GD), sent to the Telegram chats
+twice a day: an **AM report** (default 08:00, any time 00:00-11:59) and a **PM report** (default
+20:00, any time 12:00-23:59), Asia/Manila. Either can be switched off. Each picture and caption is
+marked "AM report" or "PM report".
+
+- **System status:** CRITICAL (a router is down, `CRITICAL_AP_PERCENT` (25) % of access points are
+  offline, or a router/network is full), WARNING (any switch or access point offline, or busy),
+  or NORMAL, with the reasons.
+- **Devices:** routers, switches and access points online, offline and not checked yet.
+- **Check these first:** the root causes, most important first, each with its location, how
+  long it has been down, a first diagnosis and what to check on site. Worked out from
+  "Connected to": an access point that is offline while its switch is online is the problem
+  itself (check its PoE / power, cable and port); when the switch is offline too, the switch is
+  the cause and its access points are listed under it, as they come back with it. Routers come
+  first, then switches, then access points. "Never answered" points to the IP / SNMP settings.
+- **All offline devices:** name, barangay and landmark, how long down, and whether it is the
+  problem itself or behind another device.
+- Capacity alerts and a short troubleshooting guide.
+
+The Telegram caption repeats the status and the first five things to check. **Preview picture**
+shows it; **Send the picture now** sends one (`php artisan telegram:report --now`).
+`telegram:report` runs every minute; a time missed by more than 3 hours is skipped. The
+diagnosis is in `App\Services\Monitoring\Troubleshooter`.
+
+**Email** (Settings > Email): an SMTP server (for Gmail: smtp.gmail.com, 587, TLS, an app
+password), stored encrypted; **Send test email** checks it. Left empty, `MAIL_*` in `.env` is used.
+
+**Automatic report** (Settings > Automatic report): every day (default 08:00), every week
+on a chosen day, or every month on day 1-28, at a chosen time (Asia/Manila). It covers the
+last 24 hours / 7 days / 30 days: what is down now, outages and recoveries, users online and
+the peak, registrations, clients per access point, open capacity alerts and RADIUS logins,
+with the Users report PDF attached. It also goes to Telegram (summary + PDF) when "Scheduled
+report" is ticked there. **Send a report now** sends one at once; `php artisan reports:send --now`
+does the same. `reports:send` runs every minute and sends a due report once; if the server was
+off for more than 6 hours past the time, that one is skipped.
+
+## RADIUS page
+
+**RADIUS** in the menu, for "I registered but I can't connect":
+
+- **Overview:** is RADIUS answering, logins accepted and refused (last hour, 24 hours),
+  sessions online, and valid registrations that have no login in RADIUS (made before RADIUS
+  was switched on).
+- **Login attempts:** every attempt with the likely reason for a refusal: access time ended,
+  a different phone than the one that registered, unknown login, or a phone not registered yet.
+  Routers try a phone's MAC first, so unregistered phones are refused once by MAC before they
+  see the portal: these are counted apart, as they are normal.
+- **Sessions:** online now or all, per router: start, time online, data down/up, why it ended.
+- **Look up a phone:** by MAC (WiFi settings > the network > details) or login: its
+  registration, its login in RADIUS with the end time, recent attempts and sessions.
+
+Passwords are never shown, and `setup-radius.sh` makes the database blank the password
+FreeRADIUS logs with each attempt. Attempts are kept `RADIUS_AUTH_LOG_DAYS` (30) and finished
+sessions `RADIUS_ACCT_DAYS` (365); `radius:prune` runs daily.
+
 ## Capacity and alerts
 
 Each router has a **rated users** figure: how many hotspot users it handles at once.
@@ -332,6 +429,5 @@ Alerts close by themselves once the value is 5 points under the busy line. Thres
 
 ## Next steps
 
-- Read usage (data and time per user) from `radacct`, and prune old `radacct`/`radpostauth` rows.
 - User registration portal (the hotspot `login.html` pointing at Laravel).
 - Health checks: a scheduled job reading `/ip/hotspot/active` counts per router.

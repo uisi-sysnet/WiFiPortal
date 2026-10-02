@@ -157,6 +157,7 @@ a{color:var(--neon)}
 
 /* Leaflet in the dark theme */
 .leaflet-container{font:inherit;background:#030A12}
+.legend-heat{display:inline-block;width:18px;height:8px;border-radius:4px;margin:0 2px;background:linear-gradient(90deg,#33C6E8,#F8E33B,#D7191C);vertical-align:1px}
 .leaflet-container a{color:var(--neon)}
 /* Turns OpenStreetMap's light map into a dark, blue-tinted one */
 .tiles-dark{filter:invert(1) hue-rotate(185deg) brightness(.82) contrast(.92) saturate(.55)}

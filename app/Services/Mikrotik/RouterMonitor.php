@@ -4,6 +4,7 @@ namespace App\Services\Mikrotik;
 
 use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
+use App\Models\SystemEvent;
 use Throwable;
 
 /**
@@ -27,6 +28,8 @@ class RouterMonitor
     public function refresh(MikrotikRouter $router): MikrotikRouter
     {
         $networks = $router->hotspotNetworks()->get();
+        $was = $router->link_status;
+        $lastSeen = $router->last_seen_at;
 
         try {
             $h = $this->api->health(
@@ -56,6 +59,10 @@ class RouterMonitor
                     'leases' => $h['leases'][$n->dhcpServerName()] ?? 0,
                 ])->save();
             }
+            if ($was === 'offline') {
+                SystemEvent::log('ok', 'router', "Router {$router->name} is back online",
+                    'Down for '.(SystemEvent::duration($lastSeen) ?? 'a while').'. '.number_format($h['total']).' users online.', $router);
+            }
         } catch (Throwable $e) {
             $failures = (int) $router->poll_failures + 1;
             $offline = $router->last_seen_at === null || $failures >= (int) config('hotspot.poll.offline_after');
@@ -68,6 +75,10 @@ class RouterMonitor
                 'last_polled_at' => now(),
                 'poll_error' => HotspotProvisioner::explain($e, $router),
             ])->save();
+            if ($offline && $was !== 'offline') {
+                SystemEvent::log('down', 'router', $lastSeen ? "Router {$router->name} stopped answering" : "Router {$router->name} has not answered yet",
+                    trim(($router->location ? $router->location.'. ' : '').$router->poll_error), $router);
+            }
             if ($offline) {
                 $router->forceFill(['cpu_load' => null, 'cpu_avg' => null])->save();
                 $router->hotspotNetworks()->update(['active_users' => null, 'leases' => null]);

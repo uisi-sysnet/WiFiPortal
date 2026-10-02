@@ -35,6 +35,7 @@
     @include('partials.devices-menu')
     {{-- Same items as the main menu in layouts/app --}}
     <a href="{{ route('users.index') }}">Users</a>
+    <a href="{{ route('radius') }}">RADIUS</a>
     <a href="{{ route('splash.edit') }}">Captive portal</a>
   </nav>
   <p class="health" role="status" id="health"><b>{{ $k['routers']['online'] }} of {{ $k['routers']['total'] }}</b> routers online</p>
@@ -124,12 +125,14 @@
   <section class="panel events" aria-labelledby="events-title">
     <div class="panel-head">
       <h2 id="events-title">Recent events</h2>
-      <p>Last 2 hours</p>
+      <p><a href="{{ route('logs') }}" style="color:inherit">Last 24 hours &rsaquo; all</a></p>
     </div>
     <ul class="log">
-      @foreach ($events as $e)
+      @forelse ($events as $e)
         <li class="{{ $e['level'] }}"><time>{{ $e['time'] }}</time><i aria-hidden="true"></i><span>{{ $e['text'] }}</span></li>
-      @endforeach
+      @empty
+        <li class="info"><time>&nbsp;</time><i aria-hidden="true"></i><span>Nothing in the last 24 hours. Routers, access points and switches going down or coming back appear here.</span></li>
+      @endforelse
     </ul>
   </section>
 

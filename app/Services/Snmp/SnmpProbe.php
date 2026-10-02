@@ -2,7 +2,9 @@
 
 namespace App\Services\Snmp;
 
+use App\Models\ApClientStat;
 use App\Models\NetworkDevice;
+use App\Models\SystemEvent;
 use Carbon\CarbonInterval;
 use RuntimeException;
 use SNMP;
@@ -116,9 +118,82 @@ class SnmpProbe
         return null;
     }
 
+    /**
+     * Clients connected to an access point, and where the number came from:
+     * the device's own OID, else its brand's profile, else any profile that answers.
+     *
+     * @return array{0:?int, 1:string} clients (null = unknown), source ("custom", a profile key, or "none")
+     */
+    public function clients(NetworkDevice $device): array
+    {
+        if ($device->clients_oid) {
+            return [$this->walkCount($device, $device->clients_oid, $device->clients_mode ?: 'sum'), 'custom'];
+        }
+
+        $profiles = (array) config('devices.client_oids');
+        $brand = mb_strtolower((string) $device->brand.' '.(string) $device->model.' '.(string) $device->sys_descr);
+        // The profile that answered last time first, then the brand's, then the rest
+        uksort($profiles, function ($a, $b) use ($profiles, $brand, $device) {
+            $rank = fn ($key) => $key === $device->clients_source ? 0
+                : (collect($profiles[$key]['brands'] ?? [])->contains(fn ($w) => str_contains($brand, $w)) ? 1 : 2);
+
+            return $rank($a) <=> $rank($b);
+        });
+
+        foreach ($profiles as $key => $p) {
+            $count = $this->walkCount($device, $p['oid'], $p['mode'] ?? 'sum');
+            if ($count !== null) {
+                return [$count, $key];
+            }
+        }
+
+        return [null, 'none'];
+    }
+
+    /** Walks an OID and adds up the values (sum) or counts the rows (count). Null when the device has none. */
+    protected function walkCount(NetworkDevice $device, string $oid, string $mode): ?int
+    {
+        $session = $this->session($device);
+        try {
+            $rows = $session->walk(ltrim($oid, '.'), false, 200);
+        } catch (Throwable) {
+            return null;
+        } finally {
+            $session->close();
+        }
+
+        $rows = array_filter((array) $rows, fn ($v) => $v !== null && $v !== '' && stripos((string) $v, 'no such') === false);
+        if (! $rows) {
+            return null;
+        }
+
+        return $mode === 'count' ? count($rows) : (int) array_sum(array_map(fn ($v) => (int) preg_replace('/[^\d\-]/', '', (string) $v), $rows));
+    }
+
+    /** Reads the client count of an online access point and logs it for the hour. */
+    private function refreshClients(NetworkDevice $device): void
+    {
+        // An AP that supports none of the known OIDs isn't asked every minute
+        if ($device->clients_source === 'none' && ! $device->clients_oid
+            && $device->clients_at && $device->clients_at->gt(now()->subMinutes((int) config('devices.client_retry_minutes')))) {
+            return;
+        }
+
+        [$clients, $source] = $this->clients($device);
+        $device->forceFill(['clients' => $clients, 'clients_source' => $source, 'clients_at' => now()])->save();
+
+        if ($clients !== null) {
+            ApClientStat::record($device->id, $clients);
+        }
+    }
+
     /** Runs a check and records the result on the device. */
     public function refresh(NetworkDevice $device): NetworkDevice
     {
+        $was = $device->status;
+        $lastSeen = $device->last_seen_at;
+        $label = $device->info()['label'];
+
         try {
             $facts = $this->check($device);
             $device->forceFill([
@@ -129,6 +204,18 @@ class SnmpProbe
                 'last_checked_at' => now(),
                 'last_error' => null,
             ])->save();
+
+            if ($device->type === 'ap') {
+                try {
+                    $this->refreshClients($device);
+                } catch (Throwable $e) {
+                    report($e); // the AP is still online; only the count is missing
+                }
+            }
+            if ($was === 'offline') {
+                SystemEvent::log('ok', $device->type, "{$label} {$device->name} is back online",
+                    'Down for '.(SystemEvent::duration($lastSeen) ?? 'a while').'.'.$this->where($device), $device);
+            }
         } catch (Throwable $e) {
             $failures = (int) $device->failures + 1;
 
@@ -144,9 +231,22 @@ class SnmpProbe
                 'last_checked_at' => now(),
                 'last_error' => $e->getMessage(),
             ])->save();
+
+            if ($offline && $was !== 'offline') {
+                SystemEvent::log('down', $device->type, $neverSeen ? "{$label} {$device->name} has not answered yet" : "{$label} {$device->name} went offline",
+                    trim($this->where($device).' '.$e->getMessage()), $device);
+            }
         }
 
         return $device;
+    }
+
+    /** " Poblacion, near the plaza." for event details */
+    private function where(NetworkDevice $device): string
+    {
+        $place = trim(implode(', ', array_filter([$device->barangay?->name, $device->location])));
+
+        return $place === '' ? '' : ' '.$place.'.';
     }
 
     public static function uptimeLabel(?int $seconds): ?string

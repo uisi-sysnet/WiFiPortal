@@ -96,6 +96,11 @@ return [
         'interim_update' => env('RADIUS_INTERIM_UPDATE', '5m'),
         // Time zone of the FreeRADIUS server's clock, for the Expiration of each login
         'timezone' => env('RADIUS_TIMEZONE', 'UTC'),
+        // RADIUS page: login attempts and finished sessions are kept this long (days)
+        'auth_log_days' => (int) env('RADIUS_AUTH_LOG_DAYS', 30),
+        'acct_days' => (int) env('RADIUS_ACCT_DAYS', 365),
+        // A session without an interim update for this long is not counted as online
+        'online_minutes' => (int) env('RADIUS_ONLINE_MINUTES', 15),
     ],
 
     'api' => [

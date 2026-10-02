@@ -3,10 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\HotspotGuest;
+use App\Models\Barangay;
 use App\Models\HotspotNetwork;
+use App\Services\Dashboard\ApClientReport;
 use App\Services\Portal\RegistrationStats;
-use App\Support\PieChart;
-use Barryvdh\DomPDF\Facade\Pdf;
+use App\Services\Reports\UsersReport;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 
@@ -14,15 +15,19 @@ use Illuminate\Http\Request;
  * Users: charts and totals of everyone who registered on a captive portal
  * (all time, or by year, month, week or day), then the list of registrations,
  * newest first, with search and filters. The numbers export as a PDF report.
+ * Also clients connected per access point (logged by devices:poll), as a table,
+ * a CSV and a heat map.
  */
 class UserController extends Controller
 {
     public const PERIODS = ['today' => 'Today', '7d' => 'Last 7 days', '30d' => 'Last 30 days', 'all' => 'All time'];
 
-    public function index(Request $request, RegistrationStats $stats)
+    public function index(Request $request, RegistrationStats $stats, ApClientReport $apReport)
     {
         $f = $this->filters($request);
         $base = $this->baseQuery($f);
+        $apWindow = $apReport->window($f['range'] ?? 'month');
+        $ap = $apReport->perAp($apWindow);
 
         $users = $this->listQuery($base, $f)
             ->paginate(50)
@@ -37,7 +42,73 @@ class UserController extends Controller
             'periods' => self::PERIODS,
             'stats' => $this->stats($stats, $f),
             'ranges' => RegistrationStats::RANGES,
+            'ap' => $ap,
+            'apTotals' => $apReport->totals($apWindow, $ap),
+            'apWindow' => $apWindow,
         ]);
+    }
+
+    /**
+     * Heat map of clients per access point: where people use the WiFi. Average or
+     * peak over a period, or the live count. Access points need a map position.
+     */
+    public function heatmap(Request $request, ApClientReport $apReport)
+    {
+        $r = $this->apFilters($request);
+        $window = $apReport->window($r['range'], $r['range'] === 'custom' ? [$r['from'], $r['to']] : null);
+        $rows = $apReport->perAp($window, $r['barangay'] ?? null);
+
+        return view('users.heatmap', [
+            'filters' => $r,
+            'window' => $window,
+            'points' => $apReport->heatPoints($rows, $r['metric']),
+            'barangays' => $apReport->perBarangay($rows, $r['metric']),
+            'totals' => $apReport->totals($window, $rows),
+            'rows' => $rows,
+            'barangayList' => Barangay::query()->orderBy('name')->get(['id', 'name']),
+            'ranges' => RegistrationStats::RANGES,
+            'mapCenter' => app(DashboardController::class)->center(),
+        ]);
+    }
+
+    /** Clients per access point for the period, as a spreadsheet. */
+    public function apClientsCsv(Request $request, ApClientReport $apReport)
+    {
+        $r = $this->apFilters($request);
+        $window = $apReport->window($r['range'], $r['range'] === 'custom' ? [$r['from'], $r['to']] : null);
+        $rows = $apReport->perAp($window, $r['barangay'] ?? null);
+        $tz = (string) config('hotspot.history.timezone');
+
+        return response()->streamDownload(function () use ($rows, $tz, $window) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Clients per access point: '.$window['title']]);
+            fputcsv($out, ['Access point', 'Barangay', 'Location', 'Status', 'Clients now', 'Average clients', 'Peak clients', 'Peak at ('.$tz.')', 'Hours logged', 'Share of clients (%)']);
+            foreach ($rows as $row) {
+                fputcsv($out, [
+                    $row['name'], $row['barangay'], $row['landmark'], $row['status'], $row['now'], $row['average'], $row['peak'],
+                    $row['peak_at']?->copy()->setTimezone($tz)->format('Y-m-d H:00'), $row['hours'], round($row['share'], 1),
+                ]);
+            }
+            fclose($out);
+        }, 'clients-per-access-point-'.($r['range'] === 'custom' ? $r['from'].'-to-'.$r['to'] : $r['range']).'-'.now($tz)->format('Y-m-d-Hi').'.csv',
+            ['Content-Type' => 'text/csv; charset=utf-8']);
+    }
+
+    private function apFilters(Request $request): array
+    {
+        $tz = (string) config('hotspot.history.timezone');
+        $r = $request->validate([
+            'range' => ['nullable', 'in:'.implode(',', [...array_keys(RegistrationStats::RANGES), 'custom'])],
+            'from' => ['exclude_unless:range,custom', 'required', 'date_format:Y-m-d', 'before_or_equal:to'],
+            'to' => ['exclude_unless:range,custom', 'required', 'date_format:Y-m-d', 'before_or_equal:'.now($tz)->toDateString()],
+            'metric' => ['nullable', 'in:average,peak,now'],
+            'barangay' => ['nullable', 'integer'],
+        ], [
+            'from.before_or_equal' => 'The start date must be on or before the end date.',
+            'to.before_or_equal' => 'The end date cannot be in the future.',
+        ], ['from' => 'start date', 'to' => 'end date']);
+
+        return ['range' => $r['range'] ?? 'week', 'metric' => $r['metric'] ?? 'average'] + $r;
     }
 
     /**
@@ -46,7 +117,7 @@ class UserController extends Controller
      * date range, following the page's network and visitor/resident/student filters.
      * format=pdf downloads a PDF; format=png returns the page for the browser to capture.
      */
-    public function report(Request $request, RegistrationStats $stats)
+    public function report(Request $request, UsersReport $reports)
     {
         $tz = (string) config('hotspot.history.timezone');
         $r = $request->validate([
@@ -56,53 +127,20 @@ class UserController extends Controller
             'type' => ['nullable', 'in:visitor,resident,student'],
             'network' => ['nullable', 'integer'],
             'format' => ['nullable', 'in:pdf,png'],
+            'aps' => ['nullable', 'boolean'],
         ], [
             'from.before_or_equal' => 'The start date must be on or before the end date.',
             'to.before_or_equal' => 'The end date cannot be in the future.',
         ], ['from' => 'start date', 'to' => 'end date']);
 
-        $summary = $stats->summary(
-            $r['range'],
-            ['network' => $r['network'] ?? null, 'type' => $r['type'] ?? null],
-            $r['range'] === 'custom' ? [$r['from'], $r['to']] : null,
-        );
-
-        // Busiest hotspot networks, by name ("Router / Network")
-        $counts = $summary['breakdown']['networks'];
-        $names = HotspotNetwork::with('router:id,name')->whereIn('id', array_keys($counts))->get()
-            ->mapWithKeys(fn ($n) => [$n->id => $n->router?->name.' / '.$n->name]);
-        $topNetworks = collect($counts)->take(5)
-            ->map(fn ($count, $id) => ['name' => $names[$id] ?? 'Removed network', 'count' => $count])->values()->all();
-
-        $generated = now($tz);
-        $data = [
-            'stats' => $summary,
-            'filters' => $r,
-            'network' => isset($r['network']) ? HotspotNetwork::with('router:id,name')->find($r['network']) : null,
-            'pie' => PieChart::dataUri([[$summary['unique'], '#0e670d'], [$summary['repeated'], '#7FB77E']], 170),
-            'generated' => $generated,
-            'by' => $request->user()?->name,
-            'topNetworks' => $topNetworks,
-            'otherNetworks' => max(0, count($counts) - count($topNetworks)),
-            // Printed on every page, so a printout can be matched to when and how it was made
-            'reference' => 'UR-'.$generated->format('Ymd-His').'-'.strtoupper(substr(md5(json_encode($r).$request->user()?->id), 0, 4)),
-        ];
+        $data = $reports->data($r, $request->boolean('aps'), $request->user()?->name, $request->user()?->id);
 
         // Image: the same page as HTML; the Users page turns it into a PNG in the browser
         if (($r['format'] ?? 'pdf') === 'png') {
             return response()->view('users.report', $data + ['image' => true])->header('Cache-Control', 'no-store');
         }
 
-        $pdf = Pdf::loadView('users.report', $data)->setPaper('a4', 'landscape');
-
-        // Page numbers on every page
-        $pdf->render();
-        $canvas = $pdf->getDomPDF()->getCanvas();
-        $canvas->page_text($canvas->get_width() - 100, $canvas->get_height() - 30, 'Page {PAGE_NUM} of {PAGE_COUNT}', null, 7.5, [0.36, 0.42, 0.40]);
-
-        $name = $r['range'] === 'custom' ? $r['from'].'-to-'.$r['to'] : $r['range'];
-
-        return $pdf->download('users-report-'.$name.'-'.now($tz)->format('Y-m-d-Hi').'.pdf');
+        return $reports->pdf($data)->download($reports->filename($r));
     }
 
     private function filters(Request $request): array

@@ -81,6 +81,7 @@
         @foreach (['range', 'from', 'to'] as $field)
           @error($field)<p class="u-error">{{ $message }}</p>@enderror
         @endforeach
+        <label class="u-radio" style="margin:0 0 8px"><input type="checkbox" name="aps" value="1" @checked(old('aps'))> Add clients per access point (second page)</label>
         @if (! empty($filters['network']))<input type="hidden" name="network" value="{{ $filters['network'] }}">@endif
         @if (! empty($filters['type']))<input type="hidden" name="type" value="{{ $filters['type'] }}">@endif
         <p class="u-export-note">One page: totals, users per period, the unique/repeated pie and a breakdown{{ ! empty($filters['network']) || ! empty($filters['type']) ? ', for the network and user type selected below' : '' }}. No personal details.</p>

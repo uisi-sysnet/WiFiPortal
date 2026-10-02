@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\CapacityAlert;
 use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
+use App\Models\SystemEvent;
 use App\Models\User;
 use App\Services\Mikrotik\HotspotProvisioner;
 use App\Services\Mikrotik\RouterMonitor;
@@ -75,6 +76,10 @@ class CapacityTest extends TestCase
         $monitor->refresh($router->fresh());
         $this->assertSame(0, CapacityAlert::open()->count());
         $this->assertNotNull(CapacityAlert::sole()->resolved_at);
+
+        // Logged (and sent to Telegram) when it opens, turns full and clears; not on every poll
+        $this->assertSame([['warn', 'Busy: '], ['down', 'Full: '], ['ok', 'Back to normal: ']],
+            SystemEvent::where('kind', 'capacity')->orderBy('id')->get()->map(fn ($e) => [$e->level, substr($e->title, 0, strpos($e->title, ':') + 2)])->all());
     }
 
     public function test_full_address_pool_says_to_add_a_vlan(): void

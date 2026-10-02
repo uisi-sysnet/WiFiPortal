@@ -131,6 +131,7 @@ table.u-table{width:100%;min-width:1100px;border-collapse:collapse;font-size:.82
 
 <h1 class="u-title">Users</h1>
 @include('users._stats')
+@include('users._ap_clients')
 
 <div class="u-head">
   <h2>Registrations</h2>

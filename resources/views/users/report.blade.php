@@ -4,6 +4,7 @@
   Plain tables and inline styles: dompdf has no flexbox/grid, so the bar chart is boxes
   and the pie is a PNG (App\Support\PieChart).
   Needs: $stats, $filters, $network, $pie, $generated, $by, $topNetworks, $otherNetworks, $reference, $image.
+  Optional $ap, $apTotals, $apWindow: a second page with clients per access point.
 --}}
 @php
   $image = $image ?? false;
@@ -32,6 +33,9 @@
   $bd = $s['breakdown'];
   $stamp = $generated->format('F j, Y \a\t g:i A').' ('.$generated->timezone.')';
   $more = $otherNetworks + max(0, count($topNetworks) - 3);
+  $validity = app(\App\Services\Portal\AccessValidity::class);
+  $hasAp = isset($ap);
+  $apNum = fn ($v) => $v === null ? '–' : ($v >= 10 || floor($v) == $v ? number_format($v) : number_format($v, 1));
 @endphp
 <!doctype html>
 <html>
@@ -79,6 +83,16 @@ table { border-collapse: collapse; width: 100%; }
 .mini .n { text-align: right; font-weight: bold; width: 48px; }
 .mini .p { text-align: right; color: #5c6b66; width: 42px; }
 .notes { margin: 6px 0 0; color: #5c6b66; font-size: 7px; line-height: 1.45; }
+.page2 { page-break-before: always; }
+@if ($image)
+.page2 { margin-top: 18px; padding-top: 12px; border-top: 2px dashed #C9D6CE; }
+@endif
+.aps th { text-align: left; font-size: 7px; text-transform: uppercase; color: #5c6b66; padding: 3px 4px; border-bottom: 1px solid #0e670d; background: #F3F8F4; }
+.aps td { padding: 2.5px 4px; border-bottom: 0.5px solid #E1E9E4; font-size: 7.5px; }
+.aps .n { text-align: right; width: 52px; }
+.aps .share { width: 120px; }
+.aps .share div.t { height: 4px; background: #EEF3EF; }
+.aps .share div.t div { height: 4px; background: #0e670d; }
 #footer { border-top: 1.5px solid #0e670d; padding-top: 4px; font-size: 7px; color: #5c6b66; line-height: 1.45; }
 @if (! $image)
 #footer { position: fixed; left: 0; right: 0; bottom: -40px; height: 34px; padding-right: 80px; } /* room for the page number */
@@ -248,8 +262,70 @@ table { border-collapse: collapse; width: 100%; }
 <p class="notes">
   <b>About these numbers.</b> Source: registrations on this system's hotspot captive portal (networks using a custom URL or the router's own login page are not included).
   One person is identified by resident ID, otherwise student ID, otherwise mobile or email, otherwise the phone's MAC. Their first registration in the period is unique; later ones are repeated, so unique + repeated = accumulated.
-  A login lasts {{ config('hotspot.credential_hours') }} hours, so a repeat means registering again after it ended. Times in {{ $generated->timezone }}; bars per {{ $s['per'] }}. No personal details are included.
+  Internet access lasts {{ $validity->label('resident') }} for residents, {{ $validity->label('visitor') }} for visitors and {{ $validity->label('student') }} for students, so a repeat means registering again after it ended. Times in {{ $generated->timezone }}; bars per {{ $s['per'] }}. No personal details are included.
 </p>
+
+@if ($hasAp)
+  @php
+    $apMax = max(1, collect($ap)->max('average') ?? 1);
+    $apShown = array_slice($ap, 0, 40);
+    $apTz = $generated->timezone;
+  @endphp
+  <div class="page2">
+    <table class="head">
+      <tr>
+        <td><h1>Clients per access point</h1><div class="muted">Connected devices counted over SNMP every minute</div></td>
+        <td style="text-align:right" class="muted">Period: <b style="color:#0F1A1F">{{ $apWindow['title'] }}</b></td>
+      </tr>
+    </table>
+    <div class="rule"></div>
+    <table class="cards"><tr>
+      <td><div class="card" style="height:52px">
+        <div class="lbl">Access points reporting</div>
+        <div class="num">{{ number_format($apTotals['reporting']) }} <small>of {{ number_format($apTotals['aps']) }}</small></div>
+      </div></td>
+      <td><div class="card" style="height:52px">
+        <div class="lbl">Average clients at a time</div>
+        <div class="num">{{ $apNum($apTotals['average']) }} <small>{{ $apNum($apTotals['per_ap']) }} per AP</small></div>
+      </div></td>
+      <td><div class="card" style="height:52px">
+        <div class="lbl">Busiest hour</div>
+        <div class="num">{{ $apTotals['busiest'] ? number_format($apTotals['busiest']['clients']) : '–' }} <small>{{ $apTotals['busiest'] ? $apTotals['busiest']['at']->copy()->setTimezone($apTz)->format('M j, H:00') : 'no counts yet' }}</small></div>
+      </div></td>
+      <td style="padding-right:0"><div class="card" style="height:52px">
+        <div class="lbl">Busiest access point</div>
+        <div class="num" style="font-size:12px;margin-top:5px">{{ $apTotals['top']['name'] ?? '–' }}</div>
+        <div class="sub">{{ $apTotals['top'] ? $apNum($apTotals['top']['average']).' clients on average' : '' }}</div>
+      </div></td>
+    </tr></table>
+
+    <h2>{{ count($ap) > 40 ? 'Top 40 of '.number_format(count($ap)).' access points' : 'All access points' }}, busiest first</h2>
+    <table class="aps">
+      <tr><th style="width:18px">#</th><th>Access point</th><th>Barangay</th><th class="n">Average</th><th class="n">Peak</th><th>Peak at</th><th class="share">Share of clients</th></tr>
+      @forelse ($apShown as $i => $row)
+        <tr>
+          <td class="muted">{{ $i + 1 }}</td>
+          <td><b>{{ $row['name'] }}</b></td>
+          <td>{{ $row['barangay'] ?? 'No barangay' }}</td>
+          <td class="n"><b>{{ $apNum($row['average']) }}</b></td>
+          <td class="n">{{ $row['peak'] ?? '–' }}</td>
+          <td class="muted">{{ $row['peak_at'] ? $row['peak_at']->copy()->setTimezone($apTz)->format('M j, H:00') : '' }}</td>
+          <td class="share">
+            @if ($row['average'] !== null)
+              <div class="t"><div style="width:{{ round($row['average'] / $apMax * 100, 1) }}%"></div></div>
+              <span class="muted">{{ rtrim(rtrim(number_format($row['share'], 1), '0'), '.') }}%</span>
+            @else
+              <span class="muted">No count</span>
+            @endif
+          </td>
+        </tr>
+      @empty
+        <tr><td colspan="7" class="muted">No access points yet.</td></tr>
+      @endforelse
+    </table>
+    <p class="notes">Average: clients at a time while each access point answered, over the period. Peak: the most at one check. The full list is on the Users page (CSV download).</p>
+  </div>
+@endif
 
 {{-- Footer: on every page in the PDF (page numbers are added by the controller), under the content in the image --}}
 <div id="footer">

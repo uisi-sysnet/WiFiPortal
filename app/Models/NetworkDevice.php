@@ -19,7 +19,7 @@ class NetworkDevice extends Model
         'mikrotik_router_id', 'uplink_device_id', 'barangay_id', 'location', 'latitude', 'longitude',
         'deployed_at', 'warranty', 'host', 'snmp_port', 'snmp_version', 'community',
         'v3_username', 'v3_security_level', 'v3_auth_protocol', 'v3_auth_password',
-        'v3_priv_protocol', 'v3_priv_password',
+        'v3_priv_protocol', 'v3_priv_password', 'clients_oid', 'clients_mode',
     ];
 
     protected $hidden = ['community', 'v3_auth_password', 'v3_priv_password'];
@@ -28,6 +28,7 @@ class NetworkDevice extends Model
     protected $attributes = [
         'status' => 'unknown',
         'failures' => 0,
+        'clients_mode' => 'sum',
     ];
 
     protected function casts(): array
@@ -46,7 +47,23 @@ class NetworkDevice extends Model
             'deployed_at' => 'date',  
             'last_seen_at' => 'datetime',
             'last_checked_at' => 'datetime',
+            'clients_at' => 'datetime',
         ];
+    }
+
+    public function clientStats(): HasMany
+    {
+        return $this->hasMany(ApClientStat::class);
+    }
+
+    /** "Ubiquiti UniFi", "Own OID", or null when not read yet / not supported. */
+    public function clientsSourceLabel(): ?string
+    {
+        return match ($this->clients_source) {
+            null, 'none' => null,
+            'custom' => 'Own OID',
+            default => config("devices.client_oids.{$this->clients_source}.label"),
+        };
     }
 
     public function router(): BelongsTo

@@ -9,6 +9,7 @@ use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
 use App\Models\NetworkDevice;
 use App\Models\Setting;
+use App\Models\SystemEvent;
 use App\Services\Dashboard\UserHistory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -21,11 +22,11 @@ class DashboardController extends Controller
     /**
      * Command-center overview. The top row (users online, routers, switches,
      * access points), the map, the access point grid, busiest barangays and the
-     * users chart are live; the event log is still sample() data.
+     * users chart are live, and so is the event log (SystemEvent).
      */
     public function index(UserHistory $history)
     {
-        $data = $this->sample();
+        $data = ['events' => $this->recentEvents()];
         $data['chart'] = $history->series('day');
         $data['kpis'] = $this->kpis();
         $data['alerts'] = $this->alerts();
@@ -36,7 +37,7 @@ class DashboardController extends Controller
             'mapDevices' => $this->mapDevices(),
             'apGrid' => $this->apGrid(),
             'mapBarangays' => Barangay::query()->whereHas('devices')->orderBy('name')->pluck('name'),
-            'mapCenter' => $this->mapCenter(),
+            'mapCenter' => $this->center(),
         ]);
     }
 
@@ -46,7 +47,7 @@ class DashboardController extends Controller
         return view('dashboard.map', [
             'mapDevices' => $this->mapDevices(),
             'mapBarangays' => Barangay::query()->whereHas('devices')->orderBy('name')->pluck('name'),
-            'mapCenter' => $this->mapCenter(),
+            'mapCenter' => $this->center(),
         ]);
     }
 
@@ -55,7 +56,7 @@ class DashboardController extends Controller
      * without one the map frames every device, falling back to MAP_CENTER_*
      * from .env when nothing is on the map yet.
      */
-    private function mapCenter(): array
+    public function center(): array
     {
         $lat = Setting::read('map.latitude');
         $lng = Setting::read('map.longitude');
@@ -189,7 +190,8 @@ class DashboardController extends Controller
 
     /**
      * Access points grouped by barangay for the "Access points by barangay" panel.
-     * clients and utilization stay null until per-vendor collection is added.
+     * clients comes from the SNMP poll (null when the AP's brand isn't readable);
+     * utilization stays null until per-vendor collection is added.
      *
      * @return array<int, array{barangay:string, aps:array}>
      */
@@ -241,7 +243,7 @@ class DashboardController extends Controller
                 'network_devices.id', 'network_devices.type', 'network_devices.name', 'network_devices.brand', 'network_devices.model',
                 'network_devices.host', 'network_devices.status', 'network_devices.latitude', 'network_devices.longitude',
                 'network_devices.location', 'network_devices.last_seen_at', 'network_devices.uplink_device_id',
-                'network_devices.mikrotik_router_id', 'barangays.name as barangay_name',
+                'network_devices.mikrotik_router_id', 'network_devices.clients', 'barangays.name as barangay_name',
             ])
             ->map(fn (NetworkDevice $d) => [
                 'key' => $d->type.':'.$d->id,
@@ -257,6 +259,8 @@ class DashboardController extends Controller
                 'landmark' => $d->location,
                 'seen' => $d->last_seen_at?->diffForHumans(),
                 'uplink' => $d->uplinkValue() ?: null,
+                // Clients connected now (access points that answer and report a count)
+                'clients' => $d->type === 'ap' && $d->status === 'online' ? $d->clients : null,
                 'edit' => route('devices.edit', $d->id),
             ]);
 
@@ -285,19 +289,34 @@ class DashboardController extends Controller
         return [...$routers->all(), ...$devices->all()];
     }
 
-    private function sample(): array
+    /** The dashboard's event panel: the latest events of the last 24 hours. */
+    private function recentEvents(): array
     {
-        return [
-            'events' => [
-                ['time' => '19:42', 'level' => 'down', 'text' => 'Router TUN-07 stopped answering'],
-                ['time' => '19:38', 'level' => 'warn', 'text' => 'AP POB-AP-114 dropped to 2.4 GHz only'],
-                ['time' => '19:31', 'level' => 'ok', 'text' => 'Router SUC-03 back online after 4 min'],
-                ['time' => '19:20', 'level' => 'warn', 'text' => 'Switch BUL-SW-02 port ether7 flapping'],
-                ['time' => '19:05', 'level' => 'info', 'text' => 'Evening peak: 18,000 users online'],
-                ['time' => '18:47', 'level' => 'down', 'text' => 'AP CUP-AP-031 offline'],
-                ['time' => '18:22', 'level' => 'ok', 'text' => 'Splash page updated by admin'],
-                ['time' => '17:58', 'level' => 'info', 'text' => 'Router ALA-18 added and configured'],
-            ],
-        ];
+        $tz = (string) config('hotspot.history.timezone');
+
+        return SystemEvent::query()->where('created_at', '>=', now()->subDay())->latest('id')->limit(8)->get()
+            ->map(fn (SystemEvent $e) => ['time' => $e->created_at->copy()->setTimezone($tz)->format('H:i'), 'level' => $e->level, 'text' => $e->title])
+            ->all();
+    }
+
+    /** Logs: every event, newest first, filtered by level, kind and text. */
+    public function logs(Request $request)
+    {
+        $f = $request->validate([
+            'level' => ['nullable', 'in:'.implode(',', array_keys(SystemEvent::LEVELS))],
+            'kind' => ['nullable', 'in:'.implode(',', array_keys(SystemEvent::KINDS))],
+            'q' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $events = SystemEvent::query()
+            ->when($f['level'] ?? null, fn ($q, $v) => $q->where('level', $v))
+            ->when($f['kind'] ?? null, fn ($q, $v) => $q->where('kind', $v))
+            ->when($f['q'] ?? null, fn ($q, $v) => $q->where(fn ($w) => $w
+                ->whereRaw('lower(title) like ?', ['%'.mb_strtolower($v).'%'])
+                ->orWhereRaw('lower(detail) like ?', ['%'.mb_strtolower($v).'%'])))
+            ->latest('id')
+            ->paginate(100)->withQueryString();
+
+        return view('logs.index', ['events' => $events, 'filters' => $f]);
     }
 }

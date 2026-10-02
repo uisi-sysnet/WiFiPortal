@@ -88,12 +88,16 @@ class NetworkDeviceController extends Controller
         }
         $this->requireSecrets($data, $device);
 
-        $device->fill($data)->save();
+        $device->fill($data);
+        if ($device->isDirty(['clients_oid', 'clients_mode', 'brand'])) {
+            $device->forceFill(['clients_source' => null, 'clients_at' => null]); // detect again on the next poll
+        }
+        $device->save();
         if ($device->type === 'switch' && $device->wasChanged(['mikrotik_router_id', 'uplink_device_id'])) {
             $device->propagateSiteRouter();
         }
         if ($device->wasChanged(['host', 'snmp_port', 'snmp_version', 'community', 'v3_username', 'v3_security_level',
-            'v3_auth_protocol', 'v3_auth_password', 'v3_priv_protocol', 'v3_priv_password'])) {
+            'v3_auth_protocol', 'v3_auth_password', 'v3_priv_protocol', 'v3_priv_password', 'clients_oid', 'clients_mode'])) {
             $probe->refresh($device);
         }
 
@@ -130,8 +134,10 @@ class NetworkDeviceController extends Controller
     {
         $data = $request->validate([
             ...$this->snmpRules(editing: true),
+            ...$this->clientRules((string) $request->input('device_type')),
             'host' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9.\-:]+$/'],
-        ]);
+            'brand' => ['nullable', 'string', 'max:64'],
+        ], ['clients_oid.regex' => 'Enter a numeric OID like 1.3.6.1.4.1.41112.1.6.1.2.1.8.']);
 
         // On the edit form, blank secrets fall back to the saved ones.
         if ($existing = NetworkDevice::find($request->integer('device_id'))) {
@@ -155,10 +161,23 @@ class NetworkDeviceController extends Controller
             $hardware = [];
         }
 
+        // Access points: try the client count too, so a wrong OID shows up before saving
+        $clients = [];
+        if ($request->input('device_type') === 'ap') {
+            $device->forceFill(['sys_descr' => $facts['sys_descr']]);
+            try {
+                [$count, $source] = $probe->clients($device);
+            } catch (Throwable) {
+                [$count, $source] = [null, 'none'];
+            }
+            $clients = ['clients' => $count, 'clients_source' => $source === 'custom' ? 'own OID' : config("devices.client_oids.{$source}.label", $source)];
+        }
+
         return response()->json([
             ...$facts,
             'uptime' => SnmpProbe::uptimeLabel($facts['uptime_seconds']),
             'hardware' => $hardware,
+            ...$clients,
         ]);
     }
 
@@ -266,7 +285,9 @@ class NetworkDeviceController extends Controller
             'host' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9.\-:]+$/',
                 Rule::unique('network_devices')->where('snmp_port', (int) $request->input('snmp_port', 161))->ignore($device?->id)],
             ...$this->snmpRules(editing: true),
+            ...$this->clientRules($type),
         ], [
+            'clients_oid.regex' => 'Enter a numeric OID like 1.3.6.1.4.1.41112.1.6.1.2.1.8.',
             'host.unique' => 'A device with this IP and port is already monitored.',
             'host.regex' => 'Enter an IP address or hostname.',
             'mac_address.regex' => 'Enter a MAC address like AA:BB:CC:DD:EE:FF.',
@@ -277,10 +298,22 @@ class NetworkDeviceController extends Controller
             'uplink.regex' => 'Choose what this device is connected to from the list.',
         ]);
 
+        if (array_key_exists('clients_mode', $data)) {
+            $data['clients_mode'] = $data['clients_mode'] ?: 'sum';
+        }
         $uplink = $data['uplink'] ?? null;
         unset($data['uplink']);
 
         return [...$data, ...$this->resolveUplink($uplink, $device)];
+    }
+
+    /** Access points only: their own OID for the client count, and how to read it. */
+    private function clientRules(string $type): array
+    {
+        return $type === 'ap' ? [
+            'clients_oid' => ['nullable', 'string', 'max:160', 'regex:/^\.?\d+(\.\d+){3,}$/'],
+            'clients_mode' => ['nullable', Rule::in(['sum', 'count'])],
+        ] : [];
     }
 
     /**

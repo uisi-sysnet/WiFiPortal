@@ -5,9 +5,11 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NetworkDeviceController;
 use App\Http\Controllers\PortalController;
 use App\Http\Controllers\PortalMediaController;
+use App\Http\Controllers\RadiusController;
 use App\Http\Controllers\RouterController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SplashPageController;
+use App\Http\Controllers\SystemUserController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -32,71 +34,99 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
-    Route::redirect('/', '/dashboard');
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/dashboard/map-data', [DashboardController::class, 'mapData'])->name('dashboard.map-data');
-    Route::get('/dashboard/live', [DashboardController::class, 'live'])->name('dashboard.live');
-    Route::get('/dashboard/users-chart', [DashboardController::class, 'usersChart'])->name('dashboard.users-chart');
-    Route::get('/dashboard/map', [DashboardController::class, 'map'])->name('dashboard.map');
-    Route::put('/settings/map', [SettingsController::class, 'updateMap'])->name('settings.map');
-    Route::put('/settings/validity', [SettingsController::class, 'updateValidity'])->name('settings.validity');
-    Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
-    Route::post('/settings/barangays', [SettingsController::class, 'storeBarangay'])->name('barangays.store');
-    Route::put('/settings/barangays/{barangay}', [SettingsController::class, 'updateBarangay'])->name('barangays.update');
-    Route::delete('/settings/barangays/{barangay}', [SettingsController::class, 'destroyBarangay'])->name('barangays.destroy');
-    Route::view('/logs', 'logs.index')->name('logs');
-    Route::get('/users', [UserController::class, 'index'])->name('users.index');
-    Route::get('/users/report.pdf', [UserController::class, 'report'])->name('users.report');
+    // Viewer and up: the dashboard
+    Route::middleware('role:viewer')->group(function () {
+        Route::redirect('/', '/dashboard');
+        Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+        Route::get('/dashboard/map-data', [DashboardController::class, 'mapData'])->name('dashboard.map-data');
+        Route::get('/dashboard/live', [DashboardController::class, 'live'])->name('dashboard.live');
+        Route::get('/dashboard/users-chart', [DashboardController::class, 'usersChart'])->name('dashboard.users-chart');
+        Route::get('/dashboard/map', [DashboardController::class, 'map'])->name('dashboard.map');
+    });
 
-    // Access points and switches (SNMP monitoring). The type comes from the URL.
-    foreach (['ap' => ['access-points', 'aps'], 'switch' => ['switches', 'switches']] as $type => [$path, $name]) {
-        Route::get("/{$path}", [NetworkDeviceController::class, 'index'])->defaults('type', $type)->name("{$name}.index");
-        Route::get("/{$path}/create", [NetworkDeviceController::class, 'create'])->defaults('type', $type)->name("{$name}.create");
-        Route::post("/{$path}", [NetworkDeviceController::class, 'store'])->defaults('type', $type)->name("{$name}.store");
-        Route::get("/{$path}/export", [NetworkDeviceController::class, 'export'])->defaults('type', $type)->name("{$name}.export");
-    }
-    Route::post('/devices/test-snmp', [NetworkDeviceController::class, 'testSnmp'])
-        ->middleware('throttle:30,1')->name('devices.test-snmp');
-    Route::post('/devices/bulk', [NetworkDeviceController::class, 'bulk'])->name('devices.bulk');
-    Route::get('/devices/{device}/edit', [NetworkDeviceController::class, 'edit'])->name('devices.edit');
-    Route::put('/devices/{device}', [NetworkDeviceController::class, 'update'])->name('devices.update');
-    Route::post('/devices/{device}/check', [NetworkDeviceController::class, 'check'])->name('devices.check');
-    Route::delete('/devices/{device}', [NetworkDeviceController::class, 'destroy'])->name('devices.destroy');
+    // User and up: the Users page, its charts and report downloads
+    Route::middleware('role:user')->group(function () {
+        Route::get('/users', [UserController::class, 'index'])->name('users.index');
+        Route::get('/users/report.pdf', [UserController::class, 'report'])->name('users.report');
+        Route::get('/users/heatmap', [UserController::class, 'heatmap'])->name('users.heatmap');
+        Route::get('/users/access-points.csv', [UserController::class, 'apClientsCsv'])->name('users.ap-clients');
+    });
 
-    Route::post('/routers/test-connection', [RouterController::class, 'testConnection'])
-        ->middleware('throttle:20,1')
-        ->name('routers.test-connection');
+    // Administrator: everything else
+    Route::middleware('role:admin')->group(function () {
+        Route::post('/settings/accounts', [SystemUserController::class, 'store'])->name('accounts.store');
+        Route::put('/settings/accounts/{account}', [SystemUserController::class, 'update'])->name('accounts.update');
+        Route::delete('/settings/accounts/{account}', [SystemUserController::class, 'destroy'])->name('accounts.destroy');
 
-    Route::post('/routers/detect', [RouterController::class, 'detect'])
-        ->middleware('throttle:20,1')
-        ->name('routers.detect');
+        Route::put('/settings/map', [SettingsController::class, 'updateMap'])->name('settings.map');
+        Route::put('/settings/validity', [SettingsController::class, 'updateValidity'])->name('settings.validity');
+        Route::put('/settings/telegram', [SettingsController::class, 'updateTelegram'])->name('settings.telegram');
+        Route::post('/settings/telegram/test', [SettingsController::class, 'testTelegram'])->middleware('throttle:10,1')->name('settings.telegram.test');
+        Route::post('/settings/telegram/chats', [SettingsController::class, 'telegramChats'])->middleware('throttle:10,1')->name('settings.telegram.chats');
+        Route::put('/settings/telegram/picture', [SettingsController::class, 'updatePictureReport'])->name('settings.picture');
+        Route::get('/settings/telegram/picture.png', [SettingsController::class, 'previewPictureReport'])->middleware('throttle:10,1')->name('settings.picture.preview');
+        Route::post('/settings/telegram/picture/send', [SettingsController::class, 'sendPictureReport'])->middleware('throttle:5,1')->name('settings.picture.send');
+        Route::put('/settings/mail', [SettingsController::class, 'updateMail'])->name('settings.mail');
+        Route::post('/settings/mail/test', [SettingsController::class, 'testMail'])->middleware('throttle:10,1')->name('settings.mail.test');
+        Route::put('/settings/report', [SettingsController::class, 'updateReport'])->name('settings.report');
+        Route::post('/settings/report/send', [SettingsController::class, 'sendReport'])->middleware('throttle:5,1')->name('settings.report.send');
+        Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
+        Route::post('/settings/barangays', [SettingsController::class, 'storeBarangay'])->name('barangays.store');
+        Route::put('/settings/barangays/{barangay}', [SettingsController::class, 'updateBarangay'])->name('barangays.update');
+        Route::delete('/settings/barangays/{barangay}', [SettingsController::class, 'destroyBarangay'])->name('barangays.destroy');
+        Route::get('/logs', [DashboardController::class, 'logs'])->name('logs');
+        Route::get('/radius', [RadiusController::class, 'index'])->name('radius');
 
-    Route::resource('routers', RouterController::class)
-        ->only(['index', 'create', 'store', 'show', 'destroy']);
+        // Access points and switches (SNMP monitoring). The type comes from the URL.
+        foreach (['ap' => ['access-points', 'aps'], 'switch' => ['switches', 'switches']] as $type => [$path, $name]) {
+            Route::get("/{$path}", [NetworkDeviceController::class, 'index'])->defaults('type', $type)->name("{$name}.index");
+            Route::get("/{$path}/create", [NetworkDeviceController::class, 'create'])->defaults('type', $type)->name("{$name}.create");
+            Route::post("/{$path}", [NetworkDeviceController::class, 'store'])->defaults('type', $type)->name("{$name}.store");
+            Route::get("/{$path}/export", [NetworkDeviceController::class, 'export'])->defaults('type', $type)->name("{$name}.export");
+        }
+        Route::post('/devices/test-snmp', [NetworkDeviceController::class, 'testSnmp'])
+            ->middleware('throttle:30,1')->name('devices.test-snmp');
+        Route::post('/devices/bulk', [NetworkDeviceController::class, 'bulk'])->name('devices.bulk');
+        Route::get('/devices/{device}/edit', [NetworkDeviceController::class, 'edit'])->name('devices.edit');
+        Route::put('/devices/{device}', [NetworkDeviceController::class, 'update'])->name('devices.update');
+        Route::post('/devices/{device}/check', [NetworkDeviceController::class, 'check'])->name('devices.check');
+        Route::delete('/devices/{device}', [NetworkDeviceController::class, 'destroy'])->name('devices.destroy');
 
-    // Captive portal designs. /splash opens the default one.
-    Route::get('/splash', [SplashPageController::class, 'index'])->name('splash.edit');
-    Route::post('/splash', [SplashPageController::class, 'store'])->name('splash.store');
-    Route::get('/splash/{page}', [SplashPageController::class, 'edit'])->whereNumber('page')->name('splash.design');
-    Route::put('/splash/{page}', [SplashPageController::class, 'update'])->whereNumber('page')->name('splash.update');
-    Route::delete('/splash/{page}', [SplashPageController::class, 'destroy'])->whereNumber('page')->name('splash.destroy');
-    // PUT too: the editor form spoofs PUT, and Preview reuses that form.
-    Route::match(['post', 'put'], '/splash/{page}/preview', [SplashPageController::class, 'preview'])
-        ->whereNumber('page')->name('splash.preview');
-    Route::post('/splash/{page}/reset-template', [SplashPageController::class, 'resetTemplate'])
-        ->whereNumber('page')->name('splash.reset');
-    Route::post('/splash/media', [PortalMediaController::class, 'store'])->name('splash.media.store');
-    Route::get('/splash/media/{media}', [PortalMediaController::class, 'show'])->name('splash.media.show');
-    Route::delete('/splash/media/{media}', [PortalMediaController::class, 'destroy'])->name('splash.media.destroy');
+        Route::post('/routers/test-connection', [RouterController::class, 'testConnection'])
+            ->middleware('throttle:20,1')
+            ->name('routers.test-connection');
 
-    Route::post('/routers/{router}/provision', [RouterController::class, 'provision'])
-        ->name('routers.provision');
-    Route::post('/routers/{router}/networks', [RouterController::class, 'addNetwork'])
-        ->name('routers.networks.store');
-    Route::put('/networks/{network}', [RouterController::class, 'updateNetwork'])
-        ->name('networks.update');
-    Route::put('/routers/{router}/position', [RouterController::class, 'updatePosition'])
-        ->name('routers.position');
-    Route::put('/routers/{router}/capacity', [RouterController::class, 'updateCapacity'])
-        ->name('routers.capacity');
+        Route::post('/routers/detect', [RouterController::class, 'detect'])
+            ->middleware('throttle:20,1')
+            ->name('routers.detect');
+
+        Route::resource('routers', RouterController::class)
+            ->only(['index', 'create', 'store', 'show', 'destroy']);
+
+        // Captive portal designs. /splash opens the default one.
+        Route::get('/splash', [SplashPageController::class, 'index'])->name('splash.edit');
+        Route::post('/splash', [SplashPageController::class, 'store'])->name('splash.store');
+        Route::get('/splash/{page}', [SplashPageController::class, 'edit'])->whereNumber('page')->name('splash.design');
+        Route::put('/splash/{page}', [SplashPageController::class, 'update'])->whereNumber('page')->name('splash.update');
+        Route::delete('/splash/{page}', [SplashPageController::class, 'destroy'])->whereNumber('page')->name('splash.destroy');
+        // PUT too: the editor form spoofs PUT, and Preview reuses that form.
+        Route::match(['post', 'put'], '/splash/{page}/preview', [SplashPageController::class, 'preview'])
+            ->whereNumber('page')->name('splash.preview');
+        Route::post('/splash/{page}/reset-template', [SplashPageController::class, 'resetTemplate'])
+            ->whereNumber('page')->name('splash.reset');
+        Route::post('/splash/media', [PortalMediaController::class, 'store'])->name('splash.media.store');
+        Route::get('/splash/media/{media}', [PortalMediaController::class, 'show'])->name('splash.media.show');
+        Route::delete('/splash/media/{media}', [PortalMediaController::class, 'destroy'])->name('splash.media.destroy');
+
+        Route::post('/routers/{router}/provision', [RouterController::class, 'provision'])
+            ->name('routers.provision');
+        Route::post('/routers/{router}/networks', [RouterController::class, 'addNetwork'])
+            ->name('routers.networks.store');
+        Route::put('/networks/{network}', [RouterController::class, 'updateNetwork'])
+            ->name('networks.update');
+        Route::put('/routers/{router}/position', [RouterController::class, 'updatePosition'])
+            ->name('routers.position');
+        Route::put('/routers/{router}/capacity', [RouterController::class, 'updateCapacity'])
+            ->name('routers.capacity');
+    });
 });

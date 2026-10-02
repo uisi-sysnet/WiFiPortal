@@ -21,7 +21,7 @@ Artisan::command('wifi:make-admin {email} {--name=Administrator}', function (str
 
     User::updateOrCreate(
         ['email' => $email],
-        ['name' => $this->option('name'), 'password' => $password] // hashed by the User model cast
+        ['name' => $this->option('name'), 'password' => $password, 'role' => 'admin'] // hashed by the User model cast
     );
 
     $this->info("Admin {$email} is ready. Sign in at /login.");
@@ -71,3 +71,52 @@ Artisan::command('hotspot:expire-credentials', function (\App\Services\Portal\Gu
 })->purpose('Delete hotspot usernames and passwords whose time is up');
 
 Schedule::command('hotspot:expire-credentials')->everyFifteenMinutes()->withoutOverlapping();
+
+// php artisan devices:prune-client-stats  (daily: hourly client logs older than AP_CLIENT_STATS_DAYS)
+Artisan::command('devices:prune-client-stats', function (\App\Services\Dashboard\ApClientReport $report) {
+    $this->info('Deleted '.$report->prune().' old hourly client row(s).');
+})->purpose('Delete hourly access point client logs past their keep time');
+
+Schedule::command('devices:prune-client-stats')->dailyAt('03:20');
+
+// php artisan notify:send  (every minute: new events to Telegram, in one message)
+Artisan::command('notify:send', function (\App\Services\Notify\Notifier $notifier) {
+    $this->info('Sent '.$notifier->dispatch().' event(s) to Telegram.');
+})->purpose('Send new network events to Telegram');
+
+Schedule::command('notify:send')->everyMinute()->withoutOverlapping();
+
+// php artisan reports:send  (every minute: sends the scheduled report when it is due)
+// php artisan reports:send --now  (send it right away)
+Artisan::command('reports:send {--now}', function (\App\Services\Reports\ScheduledReport $report) {
+    if ($this->option('now')) {
+        $r = $report->send();
+        $this->info("Report sent to {$r['emailed']} address(es) and {$r['telegram']} Telegram chat(s).");
+
+        return;
+    }
+    $this->info($report->runIfDue() ? 'Scheduled report sent.' : 'No report due.');
+})->purpose('Send the scheduled network report by email and Telegram');
+
+Schedule::command('reports:send')->everyMinute()->withoutOverlapping();
+
+// php artisan telegram:report  (every minute: the picture report at its times of day)
+// php artisan telegram:report --now
+Artisan::command('telegram:report {--now}', function (\App\Services\Reports\TelegramPictureReport $report) {
+    if ($this->option('now')) {
+        $this->info('Picture report sent to '.$report->send().' Telegram chat(s).');
+
+        return;
+    }
+    $this->info($report->runIfDue() ? 'Picture report sent.' : 'No picture report due.');
+})->purpose('Send the full system report as a picture to Telegram');
+
+Schedule::command('telegram:report')->everyMinute()->withoutOverlapping();
+
+// php artisan radius:prune  (daily: old login attempts and finished sessions)
+Artisan::command('radius:prune', function (\App\Services\Radius\RadiusLog $radius) {
+    [$auth, $acct] = $radius->prune();
+    $this->info("Deleted {$auth} login attempt(s) and {$acct} session(s).");
+})->purpose('Delete old RADIUS login attempts and sessions');
+
+Schedule::command('radius:prune')->dailyAt('03:40');

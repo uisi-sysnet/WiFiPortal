@@ -1,6 +1,7 @@
 {{-- Map behaviour (pins, links, filters, refresh). Needs: $mapCenter, $mapDevices. --}}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
 <script>
 (function () {
   if (!window.L) return; // map scripts blocked or offline
@@ -66,6 +67,7 @@
       + '<dt>Type</dt><dd>' + typeText[d.type] + (d.model ? ', ' + esc(d.model) : '') + '</dd>'
       + '<dt>IP</dt><dd>' + esc(d.ip) + '</dd>'
       + (d.type === 'router' ? '<dt>Users online</dt><dd>' + (d.users === null ? 'Not known' : esc(d.users)) + '</dd>' : '')
+      + (d.type === 'ap' ? '<dt>Clients</dt><dd>' + (d.clients === null || d.clients === undefined ? 'Not known' : esc(d.clients)) + '</dd>' : '')
       + (up ? '<dt>Connected to</dt><dd>' + up + '</dd>' : '')
       + (down ? '<dt>Plugged in</dt><dd>' + down + ' device' + (down === 1 ? '' : 's') + '</dd>' : '')
       + '<dt>Location</dt><dd>' + (d.type === 'router' ? '' : esc(d.barangay || 'No barangay') + (d.landmark ? '<br>' : '')) + esc(d.landmark || '') + '</dd>'
@@ -124,7 +126,27 @@
     });
   }
 
+  // Heat: clients connected now per access point, under the pins
+  const heat = L.heatLayer ? L.heatLayer([], {
+    radius: 30, blur: 16, minOpacity: 0.35, maxZoom: 11, // full strength from city zoom up
+    gradient: { 0.2: '#3B4CC0', 0.4: '#33C6E8', 0.55: '#7CE85A', 0.7: '#F8E33B', 0.85: '#F2862E', 1: '#D7191C' },
+  }) : null;
+  function drawHeat() {
+    const box = document.getElementById('show-heat');
+    if (!heat) { box.disabled = true; return; }
+    if (!box.checked) { map.removeLayer(heat); return; }
+    const pts = devices.filter((d) => d.type === 'ap' && d.clients > 0).map((d) => [d.lat, d.lng, d.clients]);
+    // The busiest area (access points within about 400 m added up) is the hottest colour
+    const near = 0.004;
+    heat.setOptions({ max: Math.max(1, ...pts.map((p) => pts
+      .filter((q) => Math.abs(q[0] - p[0]) < near && Math.abs(q[1] - p[1]) < near)
+      .reduce((sum, q) => sum + q[2], 0))) });
+    heat.setLatLngs(pts);
+    if (!map.hasLayer(heat)) heat.addTo(map);
+  }
+
   function render() {
+    drawHeat();
     const list = visible();
     const index = byKey();
     cluster.clearLayers();
@@ -149,7 +171,7 @@
     map.fitBounds(L.latLngBounds(list.map((d) => [d.lat, d.lng])), { padding: [40, 40], maxZoom: 17 });
   }
 
-  ['show-ap', 'show-switch', 'show-router', 'show-links', 'map-status'].forEach((id) => document.getElementById(id).addEventListener('change', render));
+  ['show-ap', 'show-switch', 'show-router', 'show-links', 'show-heat', 'map-status'].forEach((id) => document.getElementById(id).addEventListener('change', render));
   document.getElementById('map-barangay').addEventListener('change', (e) => {
     if (e.target.value) fit(devices.filter((d) => d.barangay === e.target.value));
     else if (center.fixed) map.setView([center.lat, center.lng], center.zoom); // back to the Settings view

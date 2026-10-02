@@ -253,6 +253,28 @@
         </div>
       </div>
 
+      @if ($type === 'ap')
+        @php $profiles = collect(config('devices.client_oids'))->pluck('label')->unique()->join(', ', ' and '); @endphp
+        <input type="hidden" name="device_type" value="ap">
+        <div class="row row-3">
+          <div class="field" style="grid-column:span 2">
+            <label for="clients_oid">Client count OID <span class="hint" style="font-weight:400">(optional)</span></label>
+            <input id="clients_oid" name="clients_oid" type="text" class="mono" maxlength="160" value="{{ $val('clients_oid') }}"
+                   placeholder="Detected for {{ $profiles }}" {!! $err('clients_oid') !!}>
+            <p class="hint">Leave empty for {{ $profiles }}: found automatically. Other brands: the OID that lists connected clients (from the vendor's MIB or <span class="mono">snmpwalk</span>).
+              @if ($editing && $device->clientsSourceLabel()) Now read with: {{ $device->clientsSourceLabel() }}. @elseif ($editing && $device->clients_source === 'none') No known OID answered yet: set one here. @endif</p>
+            @error('clients_oid')<p class="error" id="clients_oid-error">{{ $message }}</p>@enderror
+          </div>
+          <div class="field">
+            <label for="clients_mode">The OID gives</label>
+            <select id="clients_mode" name="clients_mode">
+              <option value="sum" @selected($val('clients_mode', 'sum') === 'sum')>A count per radio (add up)</option>
+              <option value="count" @selected($val('clients_mode', 'sum') === 'count')>A row per client (count rows)</option>
+            </select>
+          </div>
+        </div>
+      @endif
+
       <div class="test-row">
         <button type="button" id="test-snmp" class="btn quiet">Test SNMP</button>
         <p id="test-msg" aria-live="polite">Checks that the device answers, and reads its hardware details.</p>
@@ -783,7 +805,10 @@
 
       msg.className = 'ok';
       msg.textContent = 'Answered: ' + (data.sys_name || 'no name') + (data.uptime ? ', up ' + data.uptime : '') + '.'
-        + (filled.length ? ' Filled in ' + filled.join(', ') + '.' : '');
+        + (filled.length ? ' Filled in ' + filled.join(', ') + '.' : '')
+        + ('clients' in data ? (data.clients === null
+            ? ' Client count: not found. Set the client count OID for this brand.'
+            : ' Clients connected: ' + data.clients + ' (' + data.clients_source + ').') : '');
     } catch (err) {
       msg.className = 'bad';
       msg.textContent = err.message;

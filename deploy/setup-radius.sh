@@ -69,6 +69,19 @@ GRANT USAGE ON SCHEMA public TO $RAD_DB_USER;
 GRANT SELECT ON radcheck, radreply, radgroupcheck, radgroupreply, radusergroup, nas TO $RAD_DB_USER;
 GRANT SELECT, INSERT, UPDATE ON radacct, radpostauth TO $RAD_DB_USER;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $RAD_DB_USER;
+
+-- FreeRADIUS logs each login attempt in radpostauth, by default with the password in
+-- plain text. Never keep it: blank it on every insert, and in rows already there.
+CREATE OR REPLACE FUNCTION wifiportal_blank_postauth_pass() RETURNS trigger AS \$\$
+BEGIN
+    NEW.pass := '';
+    RETURN NEW;
+END;
+\$\$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS wifiportal_blank_pass ON radpostauth;
+CREATE TRIGGER wifiportal_blank_pass BEFORE INSERT OR UPDATE ON radpostauth
+    FOR EACH ROW EXECUTE FUNCTION wifiportal_blank_postauth_pass();
+UPDATE radpostauth SET pass = '' WHERE pass IS NOT NULL AND pass <> '';
 SQL
 
 echo "==> sql module"

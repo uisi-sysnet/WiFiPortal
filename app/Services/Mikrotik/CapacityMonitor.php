@@ -5,6 +5,7 @@ namespace App\Services\Mikrotik;
 use App\Models\CapacityAlert;
 use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
+use App\Models\SystemEvent;
 
 /**
  * Turns a router's latest readings into capacity alerts (run after every poll).
@@ -75,20 +76,29 @@ class CapacityMonitor
         if ($value >= $busy) {
             $level = $value >= $full ? 'full' : 'busy';
             $data = ['level' => $level, 'value' => min(999.9, $value), 'message' => $message($level)];
-            $open
-                ? $open->update($data)
-                : CapacityAlert::create($data + [
+            $raised = ! $open || ($open->level === 'busy' && $level === 'full');
+            if ($open) {
+                $open->update($data);
+            } else {
+                $open = CapacityAlert::create($data + [
                     'mikrotik_router_id' => $router->id,
                     'hotspot_network_id' => $network?->id,
                     'kind' => $kind,
                     'opened_at' => now(),
                 ]);
+            }
+            if ($raised) {
+                SystemEvent::log($level === 'full' ? 'down' : 'warn', 'capacity',
+                    ($level === 'full' ? 'Full: ' : 'Busy: ').$open->title(), $open->message, $open);
+            }
 
             return;
         }
 
         if ($open && $value < $busy - self::CLEAR_MARGIN) {
             $open->update(['resolved_at' => now(), 'value' => $value]);
+            SystemEvent::log('ok', 'capacity', 'Back to normal: '.$open->title(),
+                'Busy for '.(SystemEvent::duration($open->opened_at) ?? 'a while').'.', $open);
         }
     }
 
