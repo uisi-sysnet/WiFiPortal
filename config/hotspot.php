@@ -94,6 +94,8 @@ return [
         'acct_port' => (int) env('RADIUS_ACCT_PORT', 1813),
         'timeout' => env('RADIUS_TIMEOUT', '3s'),
         'interim_update' => env('RADIUS_INTERIM_UPDATE', '5m'),
+        // Time zone of the FreeRADIUS server's clock, for the Expiration of each login
+        'timezone' => env('RADIUS_TIMEZONE', 'UTC'),
     ],
 
     'api' => [
@@ -109,6 +111,16 @@ return [
         'timeout' => (int) env('ROUTER_POLL_TIMEOUT', 3),     // short: a dead router mustn't hold up the rest
         'batch' => (int) env('ROUTER_POLL_BATCH', 20),        // routers per queued job
         'offline_after' => (int) env('ROUTER_OFFLINE_AFTER', 2), // missed polls before "offline"
+    ],
+
+    // Capacity alerts, checked on every router poll. Percentages of the router's
+    // rated users, its smoothed CPU, or a hotspot network's DHCP address pool.
+    'capacity' => [
+        'busy' => (int) env('CAPACITY_BUSY_PERCENT', 80),
+        'full' => (int) env('CAPACITY_FULL_PERCENT', 95),
+        'cpu_busy' => (int) env('CAPACITY_CPU_BUSY_PERCENT', 85),
+        'cpu_full' => (int) env('CAPACITY_CPU_FULL_PERCENT', 95),
+        'default_users' => (int) env('CAPACITY_DEFAULT_USERS', 200), // models not in config/mikrotik_models.php
     ],
 
     // "Users online" chart: `users:snapshot` saves the total every 5 minutes.

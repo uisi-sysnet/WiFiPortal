@@ -36,6 +36,7 @@ table.u-table{width:100%;min-width:1100px;border-collapse:collapse;font-size:.82
 .u-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.78rem}
 .u-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:4px;font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:#F0F3F1;color:var(--ink-2);vertical-align:1px}
 .u-tag.resident{background:color-mix(in srgb,#0e670d 12%,#fff);color:#0e670d}
+.u-tag.student{background:color-mix(in srgb,#1d4fa3 12%,#fff);color:#1d4fa3}
 .pill{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:999px;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
 .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .pill.active{color:#0e670d;background:color-mix(in srgb,#0e670d 12%,#fff)}
@@ -139,12 +140,13 @@ table.u-table{width:100%;min-width:1100px;border-collapse:collapse;font-size:.82
 <div class="u-panel">
   <form class="u-filters" method="GET" action="{{ route('users.index') }}" role="search">
     <label class="sr-only" for="u-q">Search users</label>
-    <input id="u-q" class="u-control" type="search" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Name, mobile, email, MAC, IP or resident ID">
+    <input id="u-q" class="u-control" type="search" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Name, mobile, email, MAC, IP, resident or student ID, school">
     <label class="sr-only" for="u-type">Type</label>
     <select id="u-type" class="u-control" name="type" onchange="this.form.submit()">
-      <option value="">Visitors and residents</option>
-      <option value="visitor" @selected(($filters['type'] ?? '') === 'visitor')>Visitors</option>
+      <option value="">All types of user</option>
       <option value="resident" @selected(($filters['type'] ?? '') === 'resident')>Residents</option>
+      <option value="visitor" @selected(($filters['type'] ?? '') === 'visitor')>Visitors</option>
+      <option value="student" @selected(($filters['type'] ?? '') === 'student')>Students</option>
     </select>
     <label class="sr-only" for="u-network">Hotspot network</label>
     <select id="u-network" class="u-control" name="network" onchange="this.form.submit()">
@@ -202,9 +204,12 @@ table.u-table{width:100%;min-width:1100px;border-collapse:collapse;font-size:.82
             <tr>
               <td class="num">{{ $users->firstItem() + $loop->index }}</td>
               <td>
-                @if ($u->resident)
+                @if ($u->category === 'resident' || $u->resident)
                   <span class="who">Resident</span><span class="u-tag resident">Resident</span>
                   <small class="u-mono" title="Resident ID (hidden except the last 4)">{{ $u->maskedCitizenNumber() }}</small>
+                @elseif ($u->category === 'student')
+                  <span class="who">{{ $u->name }}</span><span class="u-tag student">Student</span>
+                  <small>{{ $u->school }} &middot; <span class="u-mono">{{ $u->student_number }}</span></small>
                 @else
                   <span class="who">{{ $u->name }}</span><span class="u-tag">Visitor</span>
                 @endif
@@ -233,6 +238,9 @@ table.u-table{width:100%;min-width:1100px;border-collapse:collapse;font-size:.82
                 @if ($u->connected_at)
                   {{ $u->connected_at->timezone('Asia/Manila')->format('M j, H:i') }}
                   <small>{{ $u->login_method === 'api' ? 'Logged in by the server' : 'Logged in by the phone' }}</small>
+                  @if ($u->roams)
+                    <small title="Went online on another router or network without the captive portal">Roamed {{ $u->roams }}&times;, last {{ $u->last_connected_at?->diffForHumans() }}</small>
+                  @endif
                 @else
                   <span class="none">Never</span>
                 @endif

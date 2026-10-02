@@ -19,6 +19,36 @@ select{font:inherit;width:100%;padding:8px 10px;border:1px solid #A7B4AD;border-
 details.add{border:1px dashed var(--line);border-radius:var(--radius);padding:12px 18px;margin-bottom:28px;background:var(--panel)}
 details.add summary{cursor:pointer;font-weight:600}
 details.add[open] summary{margin-bottom:14px}
+/* Capacity */
+.cap{margin-bottom:28px}
+.cap-alert{border-left:4px solid #B45309;background:#FFF6E5;padding:10px 14px;margin-bottom:10px;font-size:.92rem}
+.cap-alert.full{border-left-color:#B3372E;background:#FBEAE8}
+.cap-alert small{display:block;color:#5c6b66;margin-top:2px}
+.cap-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+@media (max-width:820px){.cap-grid{grid-template-columns:1fr}}
+.cap-card{border:1px solid var(--line);border-radius:6px;background:var(--panel);padding:12px 14px}
+.cap-label{margin:0;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#5c6b66}
+.cap-num{margin:4px 0 8px;font-size:1.6rem;font-weight:700;line-height:1.1}
+.cap-num small{font-size:.82rem;font-weight:500;color:#5c6b66}
+.cap-sub{margin:6px 0 0;font-size:.8rem;color:#5c6b66}
+.cap-bar{height:7px;border-radius:4px;background:#E6ECE8;overflow:hidden}
+.cap-bar span{display:block;height:100%;background:#0e670d}
+.cap-card.busy .cap-bar span,.cap-bar.busy span{background:#D97706}
+.cap-card.full .cap-bar span,.cap-bar.full span{background:#B3372E}
+.cap-card.full{border-color:#B3372E}
+.cap-card.busy{border-color:#D97706}
+.cap h2{font-size:1.15rem;margin:0 0 10px}
+.cap-pools{margin-bottom:12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);overflow-x:auto}
+.cap-pools table{width:100%;border-collapse:collapse}
+.cap-pools th,.cap-pools td{padding:9px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+.cap-pools th{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#5c6b66;background:#F5F7F6}
+.cap-pools tr:last-child td{border-bottom:0}
+.cap-pools td small{display:block;color:#5c6b66;font-size:.8rem}
+.cap-rating{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.cap-rating label{font-weight:600}
+.cap-rating input[type=number]{width:140px;flex:none;padding:6px 8px;border:1px solid #A7B4AD;border-radius:5px}
+.cap-rating .hint{flex-basis:100%}
+.cap-btn{padding:6px 14px;border:1px solid #0e670d;border-radius:5px;background:#0e670d;color:#fff;font:inherit;cursor:pointer}
 </style>
 @endpush
 
@@ -62,6 +92,8 @@ details.add[open] summary{margin-bottom:14px}
   <div><dt>API</dt><dd class="mono">{{ $router->host }}:{{ $router->api_port }}{{ $router->use_ssl ? ' (SSL)' : '' }}</dd></div>
   <div><dt>WAN</dt><dd><span class="mono">{{ $router->wan_interface }}</span>, {{ match ($router->wan_mode) { 'dhcp' => 'DHCP from ISP', 'static' => $router->wan_address, default => 'existing settings' } }}</dd></div>
 </dl>
+
+@include('routers._capacity', ['alerts' => $alerts])
 
 @php
   $colors = ['#0E7C66', '#C2410C', '#7E22CE', '#0369A1', '#B45309', '#BE185D', '#4D7C0F', '#475569'];

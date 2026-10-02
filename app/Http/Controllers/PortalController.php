@@ -9,6 +9,7 @@ use App\Models\SplashPage;
 use App\Rules\MobileOrEmail;
 use App\Rules\PersonName;
 use App\Services\Mikrotik\HotspotProvisioner;
+use App\Services\Portal\AccessValidity;
 use App\Services\Portal\GuestCredentials;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Http\Request;
@@ -24,13 +25,23 @@ use Throwable;
  *   4. User taps Connect; the server logs the phone in on the router through
  *      the MikroTik API, then sends it to the page after login.
  *      If the API can't be reached, the phone logs itself in instead (fallback).
+ *
+ * Roaming: a phone whose registration is still valid (its validity depends on the
+ * type of user, see Settings) skips the pages on every router and network and goes
+ * straight online. With RADIUS the router already does this by MAC before the phone
+ * ever reaches the portal; this covers routers without RADIUS and any MAC miss.
  */
 class PortalController extends Controller
 {
-    public function show(Request $request, HotspotNetwork $network)
+    public function show(Request $request, HotspotNetwork $network, GuestCredentials $credentials, HotspotProvisioner $routerApi)
     {
         if ($request->hasAny(['mac', 'link-login-only', 'error'])) {
-            $request->session()->put($this->key($network), $this->context($request, $network));
+            $ctx = $this->context($request, $network);
+            $request->session()->put($this->key($network), $ctx);
+
+            if ($online = $this->roam($request, $network, $ctx, $credentials, $routerApi)) {
+                return $online;
+            }
 
             // Clean URL, so a refresh doesn't resubmit the router's parameters.
             return redirect()->route('portal.show', ['network' => $network->portal_code]);
@@ -52,8 +63,10 @@ class PortalController extends Controller
         }
         RateLimiter::hit($limitKey, 60);
 
-        $resident = $request->boolean('resident');
-        $rules = ['accept' => ['accepted']];
+        // Older login pages only send resident=1
+        $category = (string) $request->input('category', $request->boolean('resident') ? 'resident' : 'visitor');
+        $resident = $category === 'resident';
+        $rules = ['accept' => ['accepted'], 'category' => ['required', 'in:resident,visitor,student']];
         if ($resident) {
             $rules['citizen_number'] = ['required', 'string', 'max:40', function ($attr, $value, $fail) use ($page) {
                 if (! preg_match($page->citizenRegex(), trim((string) $value))) {
@@ -62,10 +75,22 @@ class PortalController extends Controller
             }];
         } else {
             $rules['name'] = ['required', 'string', 'max:80', new PersonName($page->blockedWords())];
+        }
+        if ($category === 'visitor') {
             $rules['contact'] = ['required', 'string', 'max:254', new MobileOrEmail];
         }
+        if ($category === 'student') {
+            $rules['school'] = ['required', 'string', 'min:3', 'max:120'];
+            $rules['student_number'] = ['required', 'string', 'max:40', 'regex:/^[A-Za-z0-9][A-Za-z0-9\-\/ ]{2,39}$/'];
+        }
 
+        $request->merge(['category' => $category]);
         $data = $request->validate($rules, [
+            'category.in' => 'Choose resident, visitor or student.',
+            'school.required' => 'Enter the name of your school.',
+            'school.min' => 'Enter the name of your school.',
+            'student_number.required' => 'Enter your student ID number.',
+            'student_number.regex' => 'Use letters, numbers and dashes only.',
             'accept.accepted' => 'Please read and accept the Terms and Conditions.',
             'name.required' => 'Enter your full name.',
             'contact.required' => 'Enter your mobile number or email.',
@@ -78,20 +103,26 @@ class PortalController extends Controller
             ]);
         }
 
+        $expiresAt = app(AccessValidity::class)->expiresAt($category);
+
         try {
-            [$username, $password] = $credentials->issue($router, $ctx['mac'] ?? null);
+            [$username, $password] = $credentials->issue($router, $ctx['mac'] ?? null, $expiresAt);
         } catch (Throwable $e) {
             report($e);
 
             return back()->withInput()->withErrors(['form' => 'We could not connect you right now. Please try again in a moment.']);
         }
 
-        [$contactType, $contact] = $resident ? [null, null] : MobileOrEmail::normalize($data['contact']);
+        [$contactType, $contact] = $category === 'visitor' ? MobileOrEmail::normalize($data['contact']) : [null, null];
 
         $guest = HotspotGuest::create([
             'mikrotik_router_id' => $router->id,
             'hotspot_network_id' => $network->id,
             'resident' => $resident,
+            'category' => $category,
+            'school' => $category === 'student' ? preg_replace('/\s+/', ' ', trim($data['school'])) : null,
+            'student_number' => $category === 'student' ? strtoupper(trim($data['student_number'])) : null,
+            'password' => $password,
             'name' => $resident ? null : PersonName::clean($data['name']),
             'contact' => $contact,
             'contact_type' => $contactType,
@@ -100,7 +131,7 @@ class PortalController extends Controller
             'ip' => $ctx['ip'] ?? null,
             'username' => $username,
             'terms_hash' => $page->termsHash(),
-            'expires_at' => now()->addHours(config('hotspot.credential_hours')),
+            'expires_at' => $expiresAt,
         ]);
 
         RateLimiter::clear($limitKey);
@@ -154,7 +185,7 @@ class PortalController extends Controller
         if (! empty($ctx['mac']) && ! empty($ctx['ip'])) {
             try {
                 $routerApi->hotspotLogin($router, $pending['username'], $password, $ctx['mac'], $ctx['ip']);
-                $guest?->update(['connected_at' => now(), 'login_method' => 'api']);
+                $guest?->update(['connected_at' => now(), 'last_connected_at' => now(), 'login_method' => 'api']);
                 $request->session()->forget($key);
 
                 return $destination
@@ -171,7 +202,7 @@ class PortalController extends Controller
                 ->withErrors(['connect' => 'We could not reach the WiFi router. Please try again in a moment.']);
         }
 
-        $guest?->update(['connected_at' => now(), 'login_method' => 'browser']);
+        $guest?->update(['connected_at' => now(), 'last_connected_at' => now(), 'login_method' => 'browser']);
         $request->session()->forget($key);
 
         $login = $ctx['link_login_only'];
@@ -183,6 +214,69 @@ class PortalController extends Controller
         ]);
 
         return redirect()->away($login.(str_contains($login, '?') ? '&' : '?').$query);
+    }
+
+    /**
+     * A phone that is still registered goes straight online: no login page, no ads.
+     * Returns null when the portal should be shown (unknown phone, expired, or the
+     * router just rejected a login, which would otherwise loop).
+     */
+    private function roam(Request $request, HotspotNetwork $network, array $ctx, GuestCredentials $credentials, HotspotProvisioner $routerApi)
+    {
+        if (! empty($ctx['error']) || empty($ctx['mac'])) {
+            return null;
+        }
+        $guest = HotspotGuest::validFor($ctx['mac']);
+        if (! $guest) {
+            return null;
+        }
+
+        $router = $network->router;
+        $page = $network->adDesign();
+        $destination = $page->success_url ?: ($ctx['link_orig'] ?? null);
+        $done = function (string $method) use ($guest, $request, $network) {
+            $guest->forceFill([
+                'connected_at' => $guest->connected_at ?? now(),
+                'last_connected_at' => now(),
+                'login_method' => $guest->login_method ?? $method,
+                'roams' => $guest->roams + 1,
+            ])->save();
+            $request->session()->forget($this->key($network));
+        };
+
+        try {
+            $credentials->roam($guest, $router); // without RADIUS: copy the login to this router
+        } catch (Throwable $e) {
+            report($e);
+
+            return null; // router unreachable: let them register here instead
+        }
+
+        if (! empty($ctx['ip'])) {
+            try {
+                $routerApi->hotspotLogin($router, $guest->username, $guest->password, $ctx['mac'], $ctx['ip']);
+                $done('api');
+
+                return $destination
+                    ? redirect()->away($destination)
+                    : view('portal.connected', ['page' => $page, 'router' => $router, 'network' => $network]);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        if (empty($ctx['link_login_only'])) {
+            return null;
+        }
+        $done('browser');
+        $login = $ctx['link_login_only'];
+
+        return redirect()->away($login.(str_contains($login, '?') ? '&' : '?').http_build_query([
+            'username' => $guest->username,
+            'password' => $guest->password,
+            'dst' => $destination ?? '',
+            'popup' => 'false',
+        ]));
     }
 
     /** Renders the advertisement HTML with the Connect button at [[connect]]. Also used by the editor preview. */

@@ -8,14 +8,14 @@ use Illuminate\Support\Facades\DB;
 /**
  * Numbers behind the Users page charts: captive portal registrations over a period.
  *
- * One person is identified by their resident ID, else their mobile/email, else
- * their phone's MAC. Within the period:
+ * One person is identified by their resident ID, else their student ID (with
+ * school), else their mobile/email, else their phone's MAC. Within the period:
  *   accumulated  every registration                       (100%)
  *   unique       each person's first registration          (unique + repeated = accumulated)
  *   repeated     every later registration by the same person
  *   returning    how many people registered more than once
  *   average      registrations per hour, day or month
- *   breakdown    visitors vs residents, how many connected, registrations per hotspot network
+ *   breakdown    visitors, residents and students, how many connected, registrations per hotspot network
  *
  * Periods: all (since the first registration: monthly, or yearly after 3 years),
  * year (last 12 months, monthly), month (last 30 days, daily),
@@ -35,6 +35,7 @@ class RegistrationStats
     /** SQL for the person a registration belongs to ("||" works on PostgreSQL and SQLite). */
     private const PERSON = "case
         when resident and citizen_number is not null then 'R:' || citizen_number
+        when category = 'student' and student_number is not null then 'S:' || lower(coalesce(school, '')) || ':' || student_number
         when contact is not null then 'C:' || contact
         else 'M:' || coalesce(mac, username) end";
 
@@ -76,7 +77,7 @@ class RegistrationStats
             // From the month of the first registration; one bar per year once that is over 3 years.
             $first = DB::table('hotspot_guests')
                 ->when($filters['network'] ?? null, fn ($q, $id) => $q->where('hotspot_network_id', $id))
-                ->when($filters['type'] ?? null, fn ($q, $type) => $q->where('resident', $type === 'resident'))
+                ->when($filters['type'] ?? null, fn ($q, $type) => $q->where('category', $type))
                 ->min('created_at');
             $from = $first ? Carbon::parse($first, $stored)->setTimezone($tz) : now($tz);
             if ($from->copy()->startOfMonth()->diffInMonths(now($tz)->startOfMonth()) >= 36) {
@@ -94,22 +95,22 @@ class RegistrationStats
             ->where('created_at', '>=', $start->copy()->setTimezone($stored))
             ->when($until, fn ($q) => $q->where('created_at', '<=', $until->copy()->setTimezone($stored)))
             ->when($filters['network'] ?? null, fn ($q, $id) => $q->where('hotspot_network_id', $id))
-            ->when($filters['type'] ?? null, fn ($q, $type) => $q->where('resident', $type === 'resident'))
+            ->when($filters['type'] ?? null, fn ($q, $type) => $q->where('category', $type))
             ->orderBy('created_at')->orderBy('id')
-            ->selectRaw('created_at, resident, connected_at, hotspot_network_id, '.self::PERSON.' as person')
+            ->selectRaw('created_at, category, connected_at, hotspot_network_id, '.self::PERSON.' as person')
             ->cursor();
 
         $buckets = [];
         $seen = [];      // person => registrations in the period
         $accumulated = 0;
-        $breakdown = ['residents' => 0, 'visitors' => 0, 'connected' => 0, 'networks' => []];
+        $breakdown = ['residents' => 0, 'visitors' => 0, 'students' => 0, 'connected' => 0, 'networks' => []];
         foreach ($rows as $row) {
             $key = Carbon::parse($row->created_at, $stored)->setTimezone($tz)->format($format);
             $first = ! isset($seen[$row->person]);
             $seen[$row->person] = ($seen[$row->person] ?? 0) + 1;
             $buckets[$key][$first ? 'unique' : 'repeated'] = ($buckets[$key][$first ? 'unique' : 'repeated'] ?? 0) + 1;
             $accumulated++;
-            $breakdown[$row->resident ? 'residents' : 'visitors']++;
+            $breakdown[['resident' => 'residents', 'student' => 'students'][$row->category] ?? 'visitors']++;
             if ($row->connected_at !== null) {
                 $breakdown['connected']++;
             }
@@ -139,7 +140,7 @@ class RegistrationStats
             'returning' => count(array_filter($seen, fn ($n) => $n > 1)),
             'average' => $accumulated / max(1, count($bars)),
             'peak' => $peak ? ['at' => $peak['at'], 'total' => $peak['total']] : null,
-            // Visitors/residents, how many tapped Connect, and registrations per hotspot network id (0 = removed), busiest first
+            // Visitors/residents/students, how many tapped Connect, and registrations per hotspot network id (0 = removed), busiest first
             'breakdown' => ['networks' => collect($breakdown['networks'])->sortDesc()->all()] + $breakdown,
         ];
     }

@@ -43,7 +43,7 @@ class UserController extends Controller
     /**
      * One-page report of the numbers (no list of people): totals, users per period,
      * the unique/repeated pie and a breakdown, for All, Year, Month, Week, Day or a
-     * date range, following the page's network and visitor/resident filters.
+     * date range, following the page's network and visitor/resident/student filters.
      * format=pdf downloads a PDF; format=png returns the page for the browser to capture.
      */
     public function report(Request $request, RegistrationStats $stats)
@@ -53,7 +53,7 @@ class UserController extends Controller
             'range' => ['required', 'in:'.implode(',', [...array_keys(RegistrationStats::RANGES), 'custom'])],
             'from' => ['exclude_unless:range,custom', 'required', 'date_format:Y-m-d', 'before_or_equal:to'],
             'to' => ['exclude_unless:range,custom', 'required', 'date_format:Y-m-d', 'before_or_equal:'.now($tz)->toDateString()],
-            'type' => ['nullable', 'in:visitor,resident'],
+            'type' => ['nullable', 'in:visitor,resident,student'],
             'network' => ['nullable', 'integer'],
             'format' => ['nullable', 'in:pdf,png'],
         ], [
@@ -110,7 +110,7 @@ class UserController extends Controller
         $f = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', 'in:active,waiting,expired'],
-            'type' => ['nullable', 'in:visitor,resident'],
+            'type' => ['nullable', 'in:visitor,resident,student'],
             'network' => ['nullable', 'integer'],
             'period' => ['nullable', 'in:'.implode(',', array_keys(self::PERIODS))],
             'range' => ['nullable', 'in:'.implode(',', array_keys(RegistrationStats::RANGES))],
@@ -136,10 +136,12 @@ class UserController extends Controller
                     ->orWhereRaw('lower(mac) like ?', [$like])
                     ->orWhereRaw('lower(username) like ?', [$like])
                     ->orWhereRaw('lower(citizen_number) like ?', [$like])
+                    ->orWhereRaw('lower(student_number) like ?', [$like])
+                    ->orWhereRaw('lower(school) like ?', [$like])
                     ->orWhere('ip', 'like', $like)
                     ->when($mobile, fn ($m) => $m->orWhere('contact', 'like', $mobile)));
             })
-            ->when($f['type'] ?? null, fn ($q, $type) => $q->where('resident', $type === 'resident'))
+            ->when($f['type'] ?? null, fn ($q, $type) => $q->where('category', $type))
             ->when($f['network'] ?? null, fn ($q, $id) => $q->where('hotspot_network_id', $id))
             ->when($period !== 'all', fn ($q) => $q->where('created_at', '>=', match ($period) {
                 'today' => today(), '7d' => now()->subDays(7), default => now()->subDays(30),
@@ -163,7 +165,7 @@ class UserController extends Controller
         ];
     }
 
-    /** Charts and totals follow the network and visitor/resident filters. */
+    /** Charts and totals follow the network and visitor/resident/student filters. */
     private function stats(RegistrationStats $stats, array $f): array
     {
         return $stats->summary($f['range'] ?? 'month', ['network' => $f['network'] ?? null, 'type' => $f['type'] ?? null]);

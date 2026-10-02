@@ -6,6 +6,7 @@
 #   sudo bash /var/www/wifiportal/deploy/setup-server.sh
 #
 # Safe to run again: existing .env, database and admin users are left alone.
+# Also sets up FreeRADIUS (deploy/setup-radius.sh); skip it with WITH_RADIUS=no.
 set -euo pipefail
 umask 002                        # keep new files group-writable for www-data
 
@@ -14,6 +15,7 @@ PHP=${PHP:-8.3}
 DB_NAME=${DB_NAME:-wifiportal}
 DB_USER=${DB_USER:-wifiportal}
 OWNER=${SUDO_USER:-$(stat -c %U "$APP_DIR")}   # who runs git pull / deploy.sh
+WITH_RADIUS=${WITH_RADIUS:-yes}
 
 [[ $EUID -eq 0 ]] || { echo "Run with sudo." >&2; exit 1; }
 [[ -f $APP_DIR/artisan ]] || { echo "Clone the repository to $APP_DIR first." >&2; exit 1; }
@@ -81,10 +83,15 @@ systemctl enable --now wifiportal-queue@1 wifiportal-queue@2 wifiportal-queue@3
 sed "s#/var/www/wifiportal#$APP_DIR#g" deploy/cron/wifiportal > /etc/cron.d/wifiportal
 chmod 644 /etc/cron.d/wifiportal
 
+if [[ $WITH_RADIUS == yes ]]; then
+    APP_DIR="$APP_DIR" bash "$APP_DIR/deploy/setup-radius.sh"
+fi
+
 cat <<EOF
 
 Done. Next:
-  1. Edit $APP_DIR/.env: APP_URL, PORTAL_URL (this server's address as phones and routers see it), RADIUS_*.
+  1. Edit $APP_DIR/.env: APP_URL, PORTAL_URL (this server's address as phones and routers see it),
+     and check RADIUS_HOST (filled in by the RADIUS setup).
      Then: cd $APP_DIR && sudo -u www-data php artisan optimize
   2. Create an admin:  cd $APP_DIR && sudo -u www-data php artisan wifi:make-admin you@example.com --name="Network Admin"
   3. Open http://<server-ip>/login

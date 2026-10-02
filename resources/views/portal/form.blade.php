@@ -13,9 +13,12 @@
 .pw-hint{margin:0;font-size:.85rem;color:var(--pw-muted)}
 .pw-err{margin:0;font-size:.88rem;color:var(--pw-bad)}
 .pw-alert{margin:0 0 4px;padding:10px 12px;border-left:4px solid var(--pw-bad);background:#F7E4E2;border-radius:6px;font-size:.92rem}
-.pw-resident{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--pw-line);border-radius:10px;cursor:pointer;font-weight:600}
-.pw-resident input{width:22px;height:22px;margin:0;accent-color:var(--pw-accent);flex:none}
-.pw-resident small{display:block;font-weight:400;color:var(--pw-muted);font-size:.84rem}
+.pw-types{border:0;margin:0;padding:0;display:grid;gap:8px}
+.pw-types legend{font-weight:600;font-size:.95rem;padding:0;margin-bottom:6px}
+.pw-type{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--pw-line);border-radius:10px;cursor:pointer;font-weight:600}
+.pw-type:has(input:checked){border-color:var(--pw-accent);box-shadow:inset 0 0 0 1px var(--pw-accent)}
+.pw-type input{width:22px;height:22px;margin:0;accent-color:var(--pw-accent);flex:none}
+.pw-type small{display:block;font-weight:400;color:var(--pw-muted);font-size:.84rem}
 .pw-btn{font:inherit;font-weight:700;font-size:1rem;width:100%;min-height:50px;border:0;border-radius:10px;background:var(--pw-accent);color:#fff;cursor:pointer}
 .pw-btn:disabled{opacity:.6;cursor:wait}
 .pw-btn.pw-quiet{background:transparent;color:var(--pw-ink);border:1px solid var(--pw-line)}
@@ -40,7 +43,9 @@
 @error('accept')<p class="pw-alert" role="alert">{{ $message }}</p>@enderror
 
 @php
-  $resident = (bool) old('resident');
+  $category = old('category', old('resident') ? 'resident' : 'visitor');
+  $category = in_array($category, ['resident', 'visitor', 'student'], true) ? $category : 'visitor';
+  $validity = app(\App\Services\Portal\AccessValidity::class);
   $inv = fn ($f) => $errors->has($f) ? 'aria-invalid=true aria-describedby=pw-'.$f.'-err' : '';
 @endphp
 
@@ -48,19 +53,29 @@
   @csrf
   <input type="hidden" name="accept" id="pw-accept" value="">
 
-  <label class="pw-resident" for="pw-resident">
-    <input type="checkbox" id="pw-resident" name="resident" value="1" @checked($resident)>
-    <span>I'm a resident<small>Log in with your {{ $page->citizen_label }}</small></span>
-  </label>
+  <fieldset class="pw-types">
+    <legend>I am a</legend>
+    @foreach ([
+      'resident' => ['Resident', 'Log in with your '.$page->citizen_label],
+      'visitor' => ['Visitor (non-resident)', 'Your name and mobile number or email'],
+      'student' => ['Student', 'Your name, school and student ID'],
+    ] as $value => [$title, $sub])
+      <label class="pw-type" for="pw-type-{{ $value }}">
+        <input type="radio" id="pw-type-{{ $value }}" name="category" value="{{ $value }}" @checked($category === $value)>
+        <span>{{ $title }}<small>{{ $sub }} &middot; free for {{ $validity->label($value) }}</small></span>
+      </label>
+    @endforeach
+  </fieldset>
+  @error('category')<p class="pw-err">{{ $message }}</p>@enderror
 
-  <div class="pw-group" id="pw-guest" @if($resident) hidden @endif>
+  <div class="pw-group" id="pw-guest" @if($category === 'resident') hidden @endif>
     <div class="pw-field">
       <label for="pw-name">Full name</label>
       <input class="pw-input" id="pw-name" name="name" type="text" value="{{ old('name') }}" maxlength="80"
              autocomplete="name" autocapitalize="words" placeholder="Juan Santos" {!! $inv('name') !!}>
       @error('name')<p class="pw-err" id="pw-name-err">{{ $message }}</p>@enderror
     </div>
-    <div class="pw-field">
+    <div class="pw-field" id="pw-contact-field" @if($category === 'student') hidden @endif>
       <label for="pw-contact">Mobile number or email</label>
       <input class="pw-input" id="pw-contact" name="contact" type="text" value="{{ old('contact') }}" maxlength="254"
              autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="0917 123 4567" {!! $inv('contact') !!}>
@@ -68,7 +83,22 @@
     </div>
   </div>
 
-  <div class="pw-group" id="pw-res" @if(! $resident) hidden @endif>
+  <div class="pw-group" id="pw-stu" @if($category !== 'student') hidden @endif>
+    <div class="pw-field">
+      <label for="pw-school">School</label>
+      <input class="pw-input" id="pw-school" name="school" type="text" value="{{ old('school') }}" maxlength="120"
+             autocomplete="organization" autocapitalize="words" placeholder="Pamantasan ng Lungsod ng Muntinlupa" {!! $inv('school') !!}>
+      @error('school')<p class="pw-err" id="pw-school-err">{{ $message }}</p>@enderror
+    </div>
+    <div class="pw-field">
+      <label for="pw-student">Student ID number</label>
+      <input class="pw-input" id="pw-student" name="student_number" type="text" value="{{ old('student_number') }}" maxlength="40"
+             autocomplete="off" autocapitalize="characters" spellcheck="false" {!! $inv('student_number') !!}>
+      @error('student_number')<p class="pw-err" id="pw-student_number-err">{{ $message }}</p>@enderror
+    </div>
+  </div>
+
+  <div class="pw-group" id="pw-res" @if($category !== 'resident') hidden @endif>
     <div class="pw-field">
       <label for="pw-citizen">{{ $page->citizen_label }}</label>
       <input class="pw-input" id="pw-citizen" name="citizen_number" type="text" value="{{ old('citizen_number') }}" maxlength="40"
@@ -102,23 +132,37 @@
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var form = $('pw-form'), resident = $('pw-resident'), guest = $('pw-guest'), res = $('pw-res');
-  var nameIn = $('pw-name'), contactIn = $('pw-contact'), citizenIn = $('pw-citizen');
+  var form = $('pw-form'), guest = $('pw-guest'), res = $('pw-res'), stu = $('pw-stu'), contactField = $('pw-contact-field');
+  var types = Array.prototype.slice.call(form.querySelectorAll('input[name="category"]'));
+  var nameIn = $('pw-name'), contactIn = $('pw-contact'), citizenIn = $('pw-citizen'), schoolIn = $('pw-school'), studentIn = $('pw-student');
+  var inputs = [nameIn, contactIn, citizenIn, schoolIn, studentIn];
   var modal = $('pw-modal'), agree = $('pw-agree'), cancel = $('pw-cancel'), accept = $('pw-accept'), loginBtn = $('pw-login');
   var blocked = @json($page->blockedWords());
   var citizenPattern = @json($page->citizen_pattern);
   var citizenLabel = @json($page->citizen_label);
   var preview = @json($preview);
 
-  function toggle() {
-    guest.hidden = resident.checked;
-    res.hidden = !resident.checked;
+  function category() {
+    for (var i = 0; i < types.length; i++) if (types[i].checked) return types[i].value;
+    return 'visitor';
   }
-  resident.addEventListener('change', function () {
+  function setCategory(value) {
+    types.forEach(function (t) { t.checked = t.value === value; });
     toggle();
-    if (preview) parent.postMessage({ pw: 'resident', on: resident.checked }, '*');
-    [nameIn, contactIn, citizenIn].forEach(clear);
-    (resident.checked ? citizenIn : nameIn).focus();
+  }
+  function toggle() {
+    var c = category();
+    guest.hidden = c === 'resident';
+    res.hidden = c !== 'resident';
+    stu.hidden = c !== 'student';
+    contactField.hidden = c === 'student';
+  }
+  types.forEach(function (t) {
+    t.addEventListener('change', function () {
+      toggle();
+      if (preview) parent.postMessage({ pw: 'category', value: category() }, '*');
+      inputs.forEach(clear);
+    });
   });
 
   /* ---- Same checks as the server (App\Rules\PersonName, MobileOrEmail) ---- */
@@ -182,6 +226,19 @@
     return '';
   }
 
+  function studentProblem(v) {
+    v = v.trim();
+    if (!v) return 'Enter your student ID number.';
+    if (!/^[A-Za-z0-9][A-Za-z0-9\-\/ ]{2,39}$/.test(v)) return 'Use letters, numbers and dashes only.';
+    return '';
+  }
+
+  function schoolProblem(v) {
+    v = v.trim();
+    if (v.length < 3) return 'Enter the name of your school.';
+    return '';
+  }
+
   function clear(input) {
     input.removeAttribute('aria-invalid');
     input.removeAttribute('aria-describedby');
@@ -204,17 +261,22 @@
 
   function validate() {
     var bad = [];
-    if (resident.checked) {
+    var c = category();
+    if (c === 'resident') {
       if (show(citizenIn, citizenProblem(citizenIn.value))) bad.push(citizenIn);
     } else {
       if (show(nameIn, nameProblem(nameIn.value))) bad.push(nameIn);
-      if (show(contactIn, contactProblem(contactIn.value))) bad.push(contactIn);
+      if (c === 'visitor' && show(contactIn, contactProblem(contactIn.value))) bad.push(contactIn);
+      if (c === 'student') {
+        if (show(schoolIn, schoolProblem(schoolIn.value))) bad.push(schoolIn);
+        if (show(studentIn, studentProblem(studentIn.value))) bad.push(studentIn);
+      }
     }
     if (bad.length) bad[0].focus();
     return !bad.length;
   }
 
-  [nameIn, contactIn, citizenIn].forEach(function (input) {
+  inputs.forEach(function (input) {
     input.addEventListener('input', function () { if (input.getAttribute('aria-invalid')) clear(input); });
   });
 
@@ -268,7 +330,7 @@
     window.addEventListener('message', function (e) {
       var d = e.data;
       if (!d || d.pw !== 'state') return;
-      if (resident.checked !== !!d.resident) { resident.checked = !!d.resident; toggle(); }
+      if (d.category && category() !== d.category) setCategory(d.category);
       if (d.terms && modal.hidden) openModal(true);
       if (!d.terms && !modal.hidden) closeModal(true);
       if (typeof d.scroll === 'number') window.scrollTo(0, d.scroll);

@@ -51,6 +51,11 @@
     @include('dashboard._kpis', ['k' => $k])
   </div>
 
+  {{-- Busy / full routers and address pools (live) --}}
+  <div id="alerts-row" class="kpi-row">
+    @include('dashboard._alerts', ['alerts' => $alerts])
+  </div>
+
   {{-- ---------- Device map (live) ---------- --}}
   @include('dashboard._map')
 
@@ -235,6 +240,7 @@
       const data = await res.json();
       row.innerHTML = data.html;
       document.getElementById('barangay-clients').innerHTML = data.barangays;
+      document.getElementById('alerts-row').innerHTML = data.alerts;
       health.innerHTML = '<b>' + data.routers.online + ' of ' + data.routers.total + '</b> routers online';
     } catch (e) {
       // offline or server restarting: keep the last numbers

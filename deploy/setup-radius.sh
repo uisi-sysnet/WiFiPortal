@@ -193,6 +193,6 @@ FreeRADIUS is running on this server.
   Routers allowed from: $RADIUS_CLIENTS
   RADIUS_TIMEZONE=$(env_get RADIUS_TIMEZONE)
 
-Next: in the dashboard, apply each router's configuration again (Routers > the router > Apply)
+Next: in the dashboard, apply each router's configuration again (Routers > the router > Re-apply configuration)
 so it points at RADIUS and logs registered phones in by MAC. New registrations then go to RADIUS.
 EOF

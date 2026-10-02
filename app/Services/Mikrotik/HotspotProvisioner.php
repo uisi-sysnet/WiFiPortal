@@ -110,7 +110,7 @@ class HotspotProvisioner
         ]));
     }
 
-    /** Removes expired local hotspot users by name. */
+    /** Removes expired local hotspot users by name, and logs out anyone still online with them. */
     public function removeGuestUsers(MikrotikRouter $router, array $usernames): void
     {
         $this->connect($router);
@@ -118,6 +118,9 @@ class HotspotProvisioner
             $id = $this->rows((new Query('/ip/hotspot/user/print'))->where('name', $name))[0]['.id'] ?? null;
             if ($id) {
                 $this->run((new Query('/ip/hotspot/user/remove'))->equal('.id', $id));
+            }
+            foreach ($this->rows((new Query('/ip/hotspot/active/print'))->where('user', $name)) as $session) {
+                $this->run((new Query('/ip/hotspot/active/remove'))->equal('.id', $session['.id']));
             }
         }
     }
@@ -184,29 +187,37 @@ class HotspotProvisioner
     }
 
     /**
-     * Hotspot users logged in right now: the router's total, and per hotspot
-     * server name. Counted on the router (count-only), so it stays cheap with
-     * thousands of sessions. Throws if the router doesn't answer.
+     * Everything the dashboard needs from a router, in one short connection:
+     * hotspot users logged in (total and per hotspot server), CPU load, memory,
+     * and DHCP addresses in use per DHCP server. Counts are done on the router
+     * (count-only), so it stays cheap with thousands of sessions. Throws if the
+     * router doesn't answer.
      *
      * @param  string[]  $servers  hotspot server names to count separately
-     * @return array{total:int, servers:array<string,int>}
+     * @param  string[]  $dhcp  DHCP server names whose bound leases to count
+     * @return array{total:int, servers:array<string,int>, cpu:?int, free_memory:?int, total_memory:?int, leases:array<string,int>}
      */
-    public function activeUsers(MikrotikRouter $router, array $servers = []): array
+    public function health(MikrotikRouter $router, array $servers = [], array $dhcp = []): array
     {
         $this->connect($router, (int) config('hotspot.poll.timeout'));
 
-        $count = function (?string $server) {
-            $query = (new Query('/ip/hotspot/active/print'))->add('=count-only=');
-            if ($server !== null) {
-                $query->where('server', $server);
+        $count = function (string $menu, array $where) {
+            $query = (new Query("{$menu}/print"))->add('=count-only=');
+            foreach ($where as $key => $value) {
+                $query->where($key, $value);
             }
 
-            return (int) ($this->run($query, 'Counting hotspot users:')['after']['ret'] ?? 0);
+            return (int) ($this->run($query, 'Counting on the router:')['after']['ret'] ?? 0);
         };
+        $resource = $this->rows(new Query('/system/resource/print'))[0] ?? [];
 
         return [
-            'total' => $count(null),
-            'servers' => array_combine($servers, array_map($count, $servers)),
+            'total' => $count('/ip/hotspot/active', []),
+            'servers' => array_combine($servers, array_map(fn ($s) => $count('/ip/hotspot/active', ['server' => $s]), $servers)),
+            'cpu' => isset($resource['cpu-load']) ? (int) $resource['cpu-load'] : null,
+            'free_memory' => isset($resource['free-memory']) ? (int) $resource['free-memory'] : null,
+            'total_memory' => isset($resource['total-memory']) ? (int) $resource['total-memory'] : null,
+            'leases' => array_combine($dhcp, array_map(fn ($d) => $count('/ip/dhcp-server/lease', ['server' => $d, 'status' => 'bound']), $dhcp)),
         ];
     }
 
@@ -553,8 +564,10 @@ class HotspotProvisioner
             $this->ensure('/ip/hotspot/profile', ['name' => $n->profileName()], [
                 'hotspot-address' => $n->gateway,
                 'dns-name' => $cfg['dns_name'],
-                // Our pages log users in with a plain username/password (PAP)
-                'login-by' => $ownLoginFile ? 'http-chap,http-pap,mac-cookie' : 'http-chap,mac-cookie',
+                // Our pages log users in with a plain username/password (PAP). With RADIUS the
+                // router first tries the phone's MAC: a still-valid registration goes online with no page.
+                'login-by' => implode(',', [...($radius ? ['mac'] : []), 'http-chap', ...($ownLoginFile ? ['http-pap'] : []), 'mac-cookie']),
+                'mac-auth-mode' => 'mac-as-username-and-password',
                 'use-radius' => $radius ? 'yes' : 'no',
                 'radius-accounting' => $radius ? 'yes' : 'no',
                 'radius-interim-update' => $cfg['radius']['interim_update'],

@@ -21,6 +21,13 @@
 .map-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 120px;gap:14px;max-width:640px}
 @media (max-width:640px){.map-fields{grid-template-columns:1fr}}
 .map-form .actions{flex-wrap:wrap}
+.validity{width:100%;max-width:640px;border-collapse:collapse;margin-bottom:14px;background:var(--panel);border:1px solid var(--line)}
+.validity th,.validity td{padding:10px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.validity th{font-weight:600}
+.validity .pair{display:flex;gap:8px}
+.validity input{width:110px}
+.validity select{width:110px}
+.validity .error{margin:6px 0 0}
 @media (max-width:640px){.brgy-list li{grid-template-columns:1fr}.brgy-meta{justify-content:space-between}}
 </style>
 @endpush
@@ -35,6 +42,42 @@
 
 @if (session('status'))<div class="notice" role="status">{{ session('status') }}</div>@endif
 @if (session('error'))<div class="alert" role="alert">{{ session('error') }}</div>@endif
+
+@php $vErr = $errors->getBag('validity'); @endphp
+<section class="settings-section" id="validity" aria-labelledby="validity-title">
+  <h2 id="validity-title">Internet access time</h2>
+  <p class="hint" style="margin:0 0 14px">How long people stay online after registering on the captive portal. Until then they go online on every router and hotspot network without seeing the portal again; after that they register again.
+    A change applies to new registrations. People already registered keep the end time they were given.</p>
+
+  <form method="POST" action="{{ route('settings.validity') }}" novalidate>
+    @csrf @method('PUT')
+    <table class="validity">
+      <thead><tr><th scope="col">Type of user</th><th scope="col">Online for</th></tr></thead>
+      <tbody>
+        @foreach ($validity as $key => $v)
+          <tr>
+            <th scope="row"><label for="v-{{ $key }}">{{ $v['label'] }}</label></th>
+            <td>
+              <div class="pair">
+                <input id="v-{{ $key }}" name="{{ $key }}_amount" type="number" min="1" step="1" inputmode="numeric" class="mono"
+                       value="{{ $vErr->any() ? old($key.'_amount') : $v['amount'] }}"
+                       @if($vErr->has($key.'_amount')) aria-invalid="true" aria-describedby="v-{{ $key }}-error" @endif>
+                <label for="v-{{ $key }}-unit" class="sr-only">Unit for {{ $v['label'] }}</label>
+                <select id="v-{{ $key }}-unit" name="{{ $key }}_unit">
+                  @foreach (['hours' => 'hours', 'days' => 'days'] as $u => $uLabel)
+                    <option value="{{ $u }}" @selected(($vErr->any() ? old($key.'_unit') : $v['unit']) === $u)>{{ $uLabel }}</option>
+                  @endforeach
+                </select>
+              </div>
+              @if ($vErr->has($key.'_amount'))<p class="error" id="v-{{ $key }}-error">{{ $vErr->first($key.'_amount') }}</p>@endif
+            </td>
+          </tr>
+        @endforeach
+      </tbody>
+    </table>
+    <div class="actions"><button class="btn" type="submit">Save access time</button></div>
+  </form>
+</section>
 
 <section class="settings-section" id="barangays" aria-labelledby="brgy-title">
   <h2 id="brgy-title">Barangays</h2>

@@ -4,13 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Models\Barangay;
 use App\Models\Setting;
+use App\Services\Portal\AccessValidity;
 use Illuminate\Http\Request;
 
 class SettingsController extends Controller
 {
-    public function index()
+    public function index(AccessValidity $validity)
     {
         return view('settings.index', [
+            'validity' => collect(AccessValidity::CATEGORIES)->map(fn ($label, $key) => [
+                'label' => $label,
+                ...$validity->get($key),
+            ])->all(),
             'barangays' => Barangay::query()->withCount('devices')->orderBy('name')->get(),
             'map' => [
                 'latitude' => Setting::read('map.latitude'),
@@ -46,6 +51,36 @@ class SettingsController extends Controller
         return redirect()->to(route('settings').'#map')->with('status', isset($data['latitude'])
             ? 'The dashboard map now opens on that spot.'
             : 'The dashboard map now frames your devices automatically.');
+    }
+
+    /**
+     * How long each type of user stays online after registering. Applies to new
+     * registrations; people already registered keep the end time they were given.
+     */
+    public function updateValidity(Request $request, AccessValidity $validity)
+    {
+        $rules = [];
+        foreach (array_keys(AccessValidity::CATEGORIES) as $key) {
+            $rules["{$key}_amount"] = ['required', 'integer', 'min:1', function ($attr, $value, $fail) use ($request, $key) {
+                $hours = (int) $value * ($request->input("{$key}_unit") === 'days' ? 24 : 1);
+                if ($hours > AccessValidity::MAX_HOURS) {
+                    $fail('At most 365 days (8,760 hours).');
+                }
+            }];
+            $rules["{$key}_unit"] = ['required', 'in:hours,days'];
+        }
+        $data = $request->validateWithBag('validity', $rules, [
+            '*.required' => 'Enter a number.',
+            '*.integer' => 'Whole numbers only.',
+            '*.min' => 'At least 1.',
+        ]);
+
+        foreach (array_keys(AccessValidity::CATEGORIES) as $key) {
+            $validity->set($key, (int) $data["{$key}_amount"], $data["{$key}_unit"]);
+        }
+
+        return redirect()->to(route('settings').'#validity')
+            ->with('status', 'Access time saved. It applies to everyone who registers from now on.');
     }
 
     public function storeBarangay(Request $request)

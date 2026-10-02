@@ -47,7 +47,7 @@ class HotspotNetwork extends Model
 
     protected function casts(): array
     {
-        return ['vlan_id' => 'integer', 'max_users' => 'integer'];
+        return ['vlan_id' => 'integer', 'max_users' => 'integer', 'leases' => 'integer'];
     }
 
     public function router(): BelongsTo
@@ -101,6 +101,12 @@ class HotspotNetwork extends Model
         return HotspotProvisioner::SERVER.$this->suffix();
     }
 
+    /** The DHCP server provisioning creates for this network. */
+    public function dhcpServerName(): string
+    {
+        return 'dhcp-'.$this->key;
+    }
+
     public function profileName(): string
     {
         return HotspotProvisioner::SERVER_PROFILE.$this->suffix();
@@ -132,6 +138,18 @@ class HotspotNetwork extends Model
     public function capacity(): int
     {
         return SubnetAllocator::capacity($this->prefix());
+    }
+
+    /** Addresses DHCP can hand out (the pool, cut to the user limit if one is set). */
+    public function poolSize(): int
+    {
+        return max(1, (int) ip2long((string) $this->pool_end) - (int) ip2long((string) $this->pool_start) + 1);
+    }
+
+    /** DHCP addresses in use as a % of the pool (null when not known). */
+    public function poolPercent(): ?float
+    {
+        return $this->leases === null ? null : round($this->leases / $this->poolSize() * 100, 1);
     }
 
     /** "No limit (up to 4,093)" or "1,000 of 4,093" */

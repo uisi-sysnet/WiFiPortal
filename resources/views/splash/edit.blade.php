@@ -311,6 +311,7 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
       <div class="seg" role="group" aria-label="Form view">
         <button type="button" data-view="visitor" aria-pressed="true">Visitor</button>
         <button type="button" data-view="resident" aria-pressed="false">Resident</button>
+        <button type="button" data-view="student" aria-pressed="false">Student</button>
       </div>
       <button type="button" class="bar-btn" id="terms-toggle" aria-pressed="false">Terms pop-up</button>
     </div>
@@ -336,7 +337,7 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
   // Switching design leaves the page (the unsaved-changes warning still applies).
   $('design-pick').addEventListener('change', (e) => { location.href = e.target.value; });
   const DEVICES = { phone: 390, tablet: 768, desktop: 1280 };
-  const state = { device: 'phone', resident: false, terms: false, scroll: 0, page: 'login' };
+  const state = { device: 'phone', category: 'visitor', terms: false, scroll: 0, page: 'login' };
   let timer = null, seq = 0, controller = null, dirty = false;
 
   /* Scale the device frame to fit the panel */
@@ -395,14 +396,14 @@ textarea[aria-invalid="true"]{border-color:var(--fail)}
     if (e.source !== frame.contentWindow || !e.data) return;
     if (e.data.pw === 'scroll') state.scroll = e.data.y;
     if (e.data.pw === 'terms') setTerms(e.data.open, false);
-    if (e.data.pw === 'resident') setView(e.data.on ? 'resident' : 'visitor', false);
+    if (e.data.pw === 'category') setView(e.data.value, false);
   });
 
   function press(group, attr, value) {
     document.querySelectorAll(group + ' button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset[attr] === value)));
   }
   function setView(view, push = true) {
-    state.resident = view === 'resident';
+    state.category = view;
     press('[aria-label="Form view"]', 'view', view);
     if (push) pushState();
   }

@@ -64,6 +64,9 @@ class HotspotNetworksTest extends TestCase
             $this->assertSame($n->gateway, $profile['hotspot-address']);
             $this->assertSame('hotspot', $profile['html-directory']); // one login.html for all
             $this->assertStringContainsString('http-pap', $profile['login-by']);
+            // RADIUS set: a still-registered phone is let in by its MAC, with no page
+            $this->assertStringStartsWith('mac,', $profile['login-by']);
+            $this->assertSame('mac-as-username-and-password', $profile['mac-auth-mode']);
             // Isolated from each other and from internal networks
             $this->assertSame('!ether1', $fake->find('/ip/firewall/filter', ['comment' => "publicwifi:isolate-{$n->key}-out"])[0]['out-interface']);
         }

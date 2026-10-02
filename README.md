@@ -34,10 +34,44 @@ sudo bash /var/www/wifiportal/deploy/setup-server.sh
 
 It installs nginx, PHP 8.3-FPM (+ pgsql, snmp, gd), PostgreSQL, ffmpeg and Composer; creates
 the database with a random password; writes `.env` from `.env.production.example`; runs
-migrations; and starts three queue workers (`wifiportal-queue@1..3`) and the scheduler cron.
-Then edit `.env` (`APP_URL`, `PORTAL_URL`, `RADIUS_*`), run
+migrations; starts three queue workers (`wifiportal-queue@1..3`) and the scheduler cron; and
+sets up FreeRADIUS (below).
+Then edit `.env` (`APP_URL`, `PORTAL_URL`, check `RADIUS_HOST`), run
 `sudo -u www-data php artisan optimize`, and create an admin with
 `sudo -u www-data php artisan wifi:make-admin`.
+
+### RADIUS (FreeRADIUS on the same server)
+
+The routers do not store the logins. Each MikroTik is a RADIUS client; FreeRADIUS runs on this
+server and reads the logins Laravel writes to the `radcheck` table in the same PostgreSQL database.
+One registration therefore works on every router in the city.
+
+```
+Phone -> MikroTik (RADIUS client) -> FreeRADIUS (UDP 1812/1813) -> PostgreSQL radcheck <- Laravel
+```
+
+`setup-server.sh` runs `deploy/setup-radius.sh`, which:
+
+- installs `freeradius`, `freeradius-postgresql`, `freeradius-utils`;
+- creates the FreeRADIUS tables (`radacct`, `radpostauth`, ...) next to the app's `radcheck`;
+- adds a `radius` database role that can only read logins and write accounting;
+- enables the `sql` module (`/etc/freeradius/3.0/mods-available/wifiportal-sql`); the default
+  site's `expiration` check ends each login at its access time;
+- allows the routers as RADIUS clients and fills `RADIUS_HOST`, `RADIUS_SECRET` (random) and
+  `RADIUS_TIMEZONE` in `.env`;
+- opens UDP 1812/1813 to the routers only, when `ufw` is on;
+- tests a temporary login with `radtest`.
+
+Routers are allowed from the private ranges by default. Set where they come from, and the
+address they reach this server on, when it differs:
+
+```bash
+sudo RADIUS_CLIENTS=10.10.0.0/16,203.0.113.0/24 RADIUS_ADDRESS=10.10.0.5 bash /var/www/wifiportal/deploy/setup-radius.sh
+```
+
+Run it on its own to add RADIUS to a server set up before; skip it during setup with
+`WITH_RADIUS=no`. Afterwards use **Re-apply configuration** on each router so it points at RADIUS.
+Debug with `sudo systemctl stop freeradius && sudo freeradius -X` (shows every request).
 
 **Every update**: push from Windows, then on the server:
 
@@ -176,15 +210,39 @@ once no network uses them.
 
 1. Phone joins the hotspot SSID and opens any site; the router serves `login.html`.
 2. `login.html` sends the phone to the splash page with `mac`, `ip`, `link-login-only`, `link-orig`.
-3. Visitor enters full name + mobile number or email; a resident ticks "I'm a resident"
-   and enters only the citizen ID. Checked in the browser and again on the server.
+3. The person picks a type: **Resident** (citizen ID only), **Visitor** (full name + mobile
+   number or email) or **Student** (full name, school, student ID). Checked in the browser
+   and again on the server.
 4. "Log in" opens the Terms pop-up. "I agree, connect me" submits.
 5. The app records the registration (`hotspot_guests`, with a hash of the accepted Terms),
    creates the credentials, and redirects to the router's login link. Router logs the phone in.
 
-Credentials: username `mac-<device mac>` with a fresh random password each time.
-With `RADIUS_HOST` set they go into `radcheck` for FreeRADIUS; without it they are created
-as local hotspot users on that router through the API (fine for testing, not for scale).
+Credentials: a unique username (`wifi-xxxxxxxx`) and random password per registration, locked
+to the phone's MAC. With `RADIUS_HOST` set they go into `radcheck` for FreeRADIUS; without it
+they are created as local hotspot users on the router through the API (fine for testing, not for scale).
+
+### Access time and roaming
+
+**Settings > Internet access time** sets how long each type of user stays online after
+registering, in hours or days (up to 365 days), e.g. residents 30 days, visitors 12 hours,
+students 7 days. A change applies to new registrations; people already registered keep their end time.
+Default: `HOTSPOT_CREDENTIAL_HOURS`.
+
+Until then the phone goes online on **every router and hotspot network without the captive portal**:
+
+- **With RADIUS:** each login gets an `Expiration` in `radcheck`, and the phone's MAC is
+  added as its own login. Routers try the MAC first (`login-by=mac,...`), so a registered
+  phone is let in before any page opens, and FreeRADIUS cuts the session at the end time.
+  Set `RADIUS_TIMEZONE` to the clock of the RADIUS server.
+- **Without RADIUS (or if the MAC login misses):** when the phone reaches the portal, the app
+  finds its valid registration, copies the login to that router if needed, and logs the phone
+  in through the API, skipping the login and advertisement pages. Counted as "Roamed" on the Users page.
+
+After the time ends, `hotspot:expire-credentials` removes the login everywhere (and ends any
+open session) and the person registers again.
+
+Phones use a different random MAC per WiFi name. Use **one SSID city-wide** so a phone keeps
+the same MAC, and is recognised, at every site.
 
 ### Validation
 
@@ -195,6 +253,7 @@ as local hotspot users on that router through the API (fine for testing, not for
 - **Mobile:** Philippine mobile numbers, 09XX XXX XXXX, +639XX..., 639XX...; stored as +639XXXXXXXXX.
 - **Email:** RFC format plus a DNS check that the domain exists.
 - **Citizen ID:** must fully match the format set in the editor (regular expression).
+- **Student:** school name (3-120 characters) and student ID (letters, numbers, dashes).
 
 ### Editing
 
@@ -251,9 +310,28 @@ The top row is live: **Users online**, **Routers**, **Switches**, **Access point
 Sub-minute polling needs the scheduler cron from `deploy/` (Laravel keeps `schedule:run`
 alive for the rest of the minute) and running queue workers.
 
+## Capacity and alerts
+
+Each router has a **rated users** figure: how many hotspot users it handles at once.
+It comes from its model in `config/mikrotik_models.php` (field estimates, e.g. hEX 150,
+RB5009 700, CCR2004 1,200, CCR2116/CCR2216 2,500), or is set on the router's page.
+Load-test one unit of each model and set the real figure there.
+
+Every `routers:poll` also reads CPU load, memory and DHCP leases per hotspot network, and
+opens an alert (dashboard, router list and router page) when something is busy (80%) or
+full (95%). The advice depends on what is full:
+
+| Alert | Meaning | What to do |
+|---|---|---|
+| Users | users online vs the router's rating | add another gateway router or move access points; another VLAN on the same router adds no capacity |
+| CPU | smoothed CPU load (85% busy) | same as above |
+| Addresses | DHCP leases vs a hotspot network's pool | enlarge the network address or add another hotspot network (VLAN); on another router if this one is busy too |
+
+Alerts close by themselves once the value is 5 points under the busy line. Thresholds:
+`CAPACITY_*` in `.env`.
+
 ## Next steps
 
-- FreeRADIUS with the `sql` module on the same PostgreSQL (`radcheck`, `radreply`, `radacct`)
-  so Laravel creates users and reads usage.
+- Read usage (data and time per user) from `radacct`, and prune old `radacct`/`radpostauth` rows.
 - User registration portal (the hotspot `login.html` pointing at Laravel).
 - Health checks: a scheduled job reading `/ip/hotspot/active` counts per router.

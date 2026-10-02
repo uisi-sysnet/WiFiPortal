@@ -67,6 +67,18 @@ a{color:var(--neon)}
 
 /* KPI readouts: notched like instrument plates */
 .kpi-row{display:contents}
+/* Capacity alerts */
+.alerts{grid-column:span 12}
+.alert-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.alert-list li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:start;padding:9px 12px;border:1px solid rgba(255,176,32,.35);border-left:3px solid var(--warn);border-radius:4px;background:rgba(255,176,32,.06)}
+.alert-list li.full{border-color:rgba(255,84,112,.45);border-left-color:var(--down);background:rgba(255,84,112,.08)}
+.alert-list .lvl{font:600 .72rem var(--display);text-transform:uppercase;letter-spacing:.08em;color:var(--warn);padding-top:2px}
+.alert-list li.full .lvl{color:var(--down)}
+.alert-list a{color:var(--text);font-weight:600;text-decoration:none}
+.alert-list a:hover{color:var(--neon)}
+.alert-list p{margin:2px 0 0;font-size:.85rem;color:var(--muted)}
+.alert-list time{font-size:.78rem;color:var(--muted);white-space:nowrap}
+.alert-more{margin:8px 0 0;font-size:.82rem;color:var(--muted)}
 .kpi .as-of{margin-top:-8px;font-size:.8rem}
 .kpi{
   grid-column:span 3;position:relative;padding:18px 20px 20px;border:0;border-radius:0;

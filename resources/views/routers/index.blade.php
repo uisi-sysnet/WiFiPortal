@@ -44,7 +44,7 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Router</th><th>Status</th><th>Hotspot networks</th><th>API address</th><th>Model</th><th>Configured</th></tr>
+        <tr><th>Router</th><th>Status</th><th>Hotspot networks</th><th>Load</th><th>API address</th><th>Model</th><th>Configured</th></tr>
       </thead>
       <tbody>
       @foreach ($routers as $router)
@@ -52,6 +52,18 @@
           <td><a href="{{ route('routers.show', $router) }}">{{ $router->name }}</a>@if($router->location)<small>{{ $router->location }}</small>@endif</td>
           <td><span class="status {{ $router->status }}">{{ $router->statusLabel() }}</span></td>
           <td>@foreach ($router->hotspotNetworks as $n)<span class="mono">{{ $n->subnet }}</span> <small style="display:inline">{{ $n->name }}</small>@if(! $loop->last)<br>@endif @endforeach</td>
+          @php
+            $pctUsers = $router->usersPercent();
+            $tone = $pctUsers === null ? '#8a9a93' : ($pctUsers >= config('hotspot.capacity.full') ? '#B3372E' : ($pctUsers >= config('hotspot.capacity.busy') ? '#D97706' : '#0e670d'));
+          @endphp
+          <td>
+            @if ($pctUsers === null)
+              <span style="color:#8a9a93">Not known</span>
+            @else
+              <b style="color:{{ $tone }}">{{ rtrim(rtrim(number_format($pctUsers, 1), '0'), '.') }}%</b>
+              <small>{{ number_format($router->active_users) }} of {{ number_format($router->ratedUsers()) }} users{{ $router->cpu_avg !== null ? ', CPU '.round($router->cpu_avg).'%' : '' }}</small>
+            @endif
+          </td>
           <td class="mono">{{ $router->host }}:{{ $router->api_port }}</td>
           <td>{{ $router->board_name ?? 'Unknown' }}<small>{{ $router->ros_version ? 'RouterOS '.$router->ros_version : '' }}</small></td>
           <td>{{ $router->provisioned_at?->diffForHumans() ?? 'Not yet' }}</td>

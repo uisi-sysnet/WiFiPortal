@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProvisionHotspot;
+use App\Models\CapacityAlert;
 use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
 use App\Models\SplashPage;
@@ -215,6 +216,7 @@ class RouterController extends Controller
 
         return view('routers.show', [
             'router' => $router,
+            'alerts' => CapacityAlert::query()->open()->where('mikrotik_router_id', $router->id)->with('network')->worstFirst()->get(),
             'designs' => $this->designs(),
             'nextHotspot' => $allocator->nextHotspot(1, partial: true)[0] ?? null,
             'sizes' => SubnetAllocator::sizeOptions(),
@@ -298,6 +300,17 @@ class RouterController extends Controller
         return redirect()->route('routers.show', $router)->with('status', $reapply
             ? "{$network->name} saved. Updating the router."
             : "{$network->name} saved. Phones see the change on their next visit.");
+    }
+
+    /** How many hotspot users this router is rated for; empty = the model's figure. Rechecked at the next poll. */
+    public function updateCapacity(Request $request, MikrotikRouter $router)
+    {
+        $data = $request->validate(['rated_users' => ['nullable', 'integer', 'between:1,100000']]);
+        $router->update(['rated_users' => $data['rated_users'] ?? null]);
+        app(\App\Services\Mikrotik\CapacityMonitor::class)->evaluate($router->load('hotspotNetworks'));
+
+        return redirect()->to(route('routers.show', $router).'#capacity')
+            ->with('status', "{$router->name} is now rated for ".number_format($router->ratedUsers()).' hotspot users.');
     }
 
     /** Map position, so lines from its switches and access points can be drawn on the dashboard. */

@@ -34,7 +34,7 @@ class MikrotikRouter extends Model
         'mgmt_subnet', 'mgmt_gateway', 'mgmt_pool_start', 'mgmt_pool_end',
         'test_subnet', 'test_gateway', 'test_pool_start', 'test_pool_end',
         'identity', 'board_name', 'ros_version',
-        'latitude', 'longitude',
+        'latitude', 'longitude', 'rated_users',
     ];
 
     protected $hidden = ['password'];
@@ -80,6 +80,11 @@ class MikrotikRouter extends Model
             'longitude' => 'decimal:7',
             'last_seen_at' => 'datetime',
             'last_polled_at' => 'datetime',
+            'rated_users' => 'integer',
+            'cpu_load' => 'integer',
+            'cpu_avg' => 'float',
+            'free_memory' => 'integer',
+            'total_memory' => 'integer',
         ];
     }
 
@@ -114,6 +119,60 @@ class MikrotikRouter extends Model
             'pool_start' => $this->{"{$network}_pool_start"},
             'pool_end' => $this->{"{$network}_pool_end"},
         ];
+    }
+
+    /**
+     * Hotspot users this router is rated for: set on its page, else its model's
+     * figure (config/mikrotik_models.php), else the CAPACITY_DEFAULT_USERS default.
+     */
+    public function ratedUsers(): int
+    {
+        return $this->rated_users ?: $this->modelRating() ?? (int) config('hotspot.capacity.default_users');
+    }
+
+    /** The model's rated users, from the chosen model or the board name the router reports. */
+    public function modelRating(): ?int
+    {
+        $models = config('mikrotik_models');
+        $key = isset($models[$this->model]) ? $this->model : self::modelKeyForBoard($this->board_name);
+
+        return $key ? ($models[$key]['users'] ?? null) : null;
+    }
+
+    /** "CCR2216-1G-12XS-2XQ" or "hEX" (as RouterOS reports it) -> the matching model key. */
+    public static function modelKeyForBoard(?string $board): ?string
+    {
+        $norm = fn ($v) => preg_replace('/[^a-z0-9]/', '', strtolower((string) $v));
+        $b = $norm($board);
+        if ($b === '') {
+            return null;
+        }
+        $models = config('mikrotik_models');
+        // Exact name first ("hEX" is not "hEX S"), then one containing the other
+        foreach ($models as $key => $m) {
+            if ($norm(strtok($m['label'], '(')) === $b) {
+                return $key;
+            }
+        }
+        foreach ($models as $key => $m) {
+            $label = $norm($m['label']);
+            if (str_contains($label, $b) || str_contains($b, $norm(strtok($m['label'], '(')))) {
+                return $key;
+            }
+        }
+
+        return null;
+    }
+
+    /** Users online as a % of the rated capacity (null when not known). */
+    public function usersPercent(): ?float
+    {
+        return $this->active_users === null ? null : round($this->active_users / max(1, $this->ratedUsers()) * 100, 1);
+    }
+
+    public function memoryPercent(): ?float
+    {
+        return $this->total_memory ? round(($this->total_memory - $this->free_memory) / $this->total_memory * 100, 1) : null;
     }
 
     public function modelLabel(): string

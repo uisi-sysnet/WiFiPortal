@@ -26,7 +26,7 @@
   };
   $used = array_filter([
       'Hotspot network' => $network ? $network->router?->name.' / '.$network->name : null,
-      'Users' => isset($filters['type']) ? ($filters['type'] === 'resident' ? 'Residents only' : 'Visitors only') : null,
+      'Users' => isset($filters['type']) ? ['resident' => 'Residents only', 'visitor' => 'Visitors only', 'student' => 'Students only'][$filters['type']] : null,
   ]);
   $avg = $s['average'] >= 10 || $s['average'] == 0 ? number_format($s['average']) : number_format($s['average'], 1);
   $bd = $s['breakdown'];
@@ -219,6 +219,7 @@ table { border-collapse: collapse; width: 100%; }
       <tr><th>Type of user</th><th class="n">Users</th><th class="p">Share</th></tr>
       <tr><td>Visitors (name and mobile or email)</td><td class="n">{{ number_format($bd['visitors']) }}</td><td class="p">{{ $pct($bd['visitors']) }}</td></tr>
       <tr><td>Residents (resident ID)</td><td class="n">{{ number_format($bd['residents']) }}</td><td class="p">{{ $pct($bd['residents']) }}</td></tr>
+      <tr><td>Students (school and student ID)</td><td class="n">{{ number_format($bd['students']) }}</td><td class="p">{{ $pct($bd['students']) }}</td></tr>
     </table>
   </div></td>
   <td class="box"><div class="panel">
@@ -246,7 +247,7 @@ table { border-collapse: collapse; width: 100%; }
 {{-- How the numbers are counted --}}
 <p class="notes">
   <b>About these numbers.</b> Source: registrations on this system's hotspot captive portal (networks using a custom URL or the router's own login page are not included).
-  One person is identified by resident ID, otherwise mobile or email, otherwise the phone's MAC. Their first registration in the period is unique; later ones are repeated, so unique + repeated = accumulated.
+  One person is identified by resident ID, otherwise student ID, otherwise mobile or email, otherwise the phone's MAC. Their first registration in the period is unique; later ones are repeated, so unique + repeated = accumulated.
   A login lasts {{ config('hotspot.credential_hours') }} hours, so a repeat means registering again after it ended. Times in {{ $generated->timezone }}; bars per {{ $s['per'] }}. No personal details are included.
 </p>
 

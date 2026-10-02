@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Barangay;
+use App\Models\CapacityAlert;
 use App\Models\HotspotGuest;
 use App\Models\HotspotNetwork;
 use App\Models\MikrotikRouter;
@@ -27,6 +28,7 @@ class DashboardController extends Controller
         $data = $this->sample();
         $data['chart'] = $history->series('day');
         $data['kpis'] = $this->kpis();
+        $data['alerts'] = $this->alerts();
         $data['barangayClients'] = $this->barangayClients();
 
         return view('dashboard.index', [
@@ -86,6 +88,7 @@ class DashboardController extends Controller
         return response()->json([
             'html' => view('dashboard._kpis', ['k' => $kpis])->render(),
             'barangays' => view('dashboard._barangays', ['rows' => $this->barangayClients()])->render(),
+            'alerts' => view('dashboard._alerts', ['alerts' => $this->alerts()])->render(),
             'routers' => $kpis['routers'],
             'users' => $kpis['users']['online'],
         ])->header('Cache-Control', 'no-store');
@@ -167,6 +170,12 @@ class DashboardController extends Controller
             })
             ->sortBy([fn ($a, $b) => ($b['clients'] ?? -1) <=> ($a['clients'] ?? -1), fn ($a, $b) => $a['name'] <=> $b['name']])
             ->values()->all();
+    }
+
+    /** Open capacity alerts, worst first. */
+    private function alerts()
+    {
+        return CapacityAlert::query()->open()->with(['router:id,name', 'network:id,name'])->worstFirst()->get();
     }
 
     /** JSON for the map's once-a-minute refresh. */

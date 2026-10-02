@@ -39,6 +39,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/dashboard/users-chart', [DashboardController::class, 'usersChart'])->name('dashboard.users-chart');
     Route::get('/dashboard/map', [DashboardController::class, 'map'])->name('dashboard.map');
     Route::put('/settings/map', [SettingsController::class, 'updateMap'])->name('settings.map');
+    Route::put('/settings/validity', [SettingsController::class, 'updateValidity'])->name('settings.validity');
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::post('/settings/barangays', [SettingsController::class, 'storeBarangay'])->name('barangays.store');
     Route::put('/settings/barangays/{barangay}', [SettingsController::class, 'updateBarangay'])->name('barangays.update');
@@ -96,4 +97,6 @@ Route::middleware('auth')->group(function () {
         ->name('networks.update');
     Route::put('/routers/{router}/position', [RouterController::class, 'updatePosition'])
         ->name('routers.position');
+    Route::put('/routers/{router}/capacity', [RouterController::class, 'updateCapacity'])
+        ->name('routers.capacity');
 });
