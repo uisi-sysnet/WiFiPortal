@@ -29,7 +29,7 @@ class NetworkDeviceController extends Controller
             ->select('network_devices.*', 'barangays.name as barangay_name')
             ->orderByRaw('barangays.name is null, barangays.name')
             ->orderBy('network_devices.name')
-            ->paginate(50)
+            ->paginate(20)
             ->withQueryString();
 
         $counts = NetworkDevice::query()->where('type', $type)
