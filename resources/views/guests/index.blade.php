@@ -117,6 +117,16 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
   border-color: var(--line) !important;
 }
 .pagination-wrap nav a:hover { background-color: var(--hover) !important; }
+dialog.modal { width:min(760px,calc(100vw - 24px)); max-height:calc(100vh - 32px); padding:0; border:0; border-radius:8px; color:var(--ink); background:var(--paper); box-shadow:0 28px 80px rgba(10,20,26,.38); overflow:hidden; }
+dialog.modal::backdrop { background:rgba(10,20,26,.55); backdrop-filter:blur(2px); }
+dialog.modal[open] { display:flex; }
+.modal-form { display:flex; flex-direction:column; width:100%; max-height:calc(100vh - 32px); margin:0; }
+.modal-head,.modal-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 18px; background:#fff; }
+.modal-head { border-bottom:1px solid var(--line); }.modal-head h2 { margin:0; font-size:1rem; }
+.modal-body { flex:1; overflow:auto; padding:18px; }.modal-body p { margin:0 0 14px; color:var(--ink-2); }
+.modal-foot { border-top:1px solid var(--line); }.modal-foot .foot-right { display:flex; gap:8px; }
+.export-columns { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px 16px; }
+.export-columns label { display:flex; align-items:center; gap:8px; font-size:.85rem; }
 
 /* ============================================================
    RESPONSIVE — mobile cards (< 760px)
@@ -155,6 +165,32 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
 @section('content')
 <div class="page-wrapper">
 
+  <dialog class="modal" id="export-columns" aria-labelledby="export-title">
+    <form class="modal-form" method="GET" action="{{ route('guests.export') }}">
+      <input type="hidden" name="q" value="{{ $search }}">
+      <input type="hidden" name="status" value="{{ $status }}">
+      <div class="modal-head">
+        <h2 id="export-title">Choose guest columns to export</h2>
+        <button type="button" class="btn control quiet" onclick="document.getElementById('export-columns').close()" aria-label="Close">Close</button>
+      </div>
+      <div class="modal-body">
+        <p>The export will include all guests matching the current search and status filter.</p>
+        <div class="export-columns">
+          @foreach ($exportColumns as $columnLabel)
+            <label><input type="checkbox" name="columns[]" value="{{ $loop->index }}" checked> {{ $columnLabel }}</label>
+          @endforeach
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span class="foot-left">All columns are selected by default.</span>
+        <div class="foot-right">
+          <button type="button" class="btn control quiet" onclick="document.getElementById('export-columns').close()">Cancel</button>
+          <button type="submit" class="btn control primary">Export to Excel</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
   {{-- Page header --}}
   <div class="page-head">
     <h1>Guests</h1>
@@ -170,6 +206,12 @@ table.inventory a:hover { text-decoration: underline; text-underline-offset: 2px
         </select>
         <button type="submit" class="btn control primary">Filter</button>
       </form>
+      <button class="btn control quiet" type="button" onclick="document.getElementById('export-columns').showModal()" title="Choose columns to include in the Excel file">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:6px">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Export to Excel
+      </button>
     </div>
   </div>
 

@@ -36,6 +36,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/map-data', [DashboardController::class, 'mapData'])->name('dashboard.map-data');
     Route::get('/dashboard/live', [DashboardController::class, 'live'])->name('dashboard.live');
+    Route::get('/guests/export', [GuestController::class, 'export'])->name('guests.export');
     Route::get('/guests', [GuestController::class, 'index'])->name('guests.index');
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
     Route::post('/settings/barangays', [SettingsController::class, 'storeBarangay'])->name('barangays.store');
