@@ -121,14 +121,11 @@ class SystemUsersTest extends TestCase
         $this->delete("/settings/accounts/{$me->id}")->assertSessionHas('status', 'Ana Admin deleted. They can no longer sign in.');
         $this->assertNull($me->fresh());
 
-        // Now Pedro is the only administrator: nobody can take that away
-        $third = User::factory()->create(['role' => 'admin']);
-        $this->actingAs($third);
-        $third->update(['role' => 'user']);           // simulate: only Pedro is admin
-        $this->actingAs(User::factory()->create(['role' => 'admin']));
-        User::where('role', 'admin')->whereKeyNot($other->id)->update(['role' => 'user']);
-        $this->delete("/settings/accounts/{$other->id}")->assertRedirect(route('dashboard')); // the acting user is no longer an admin
-        $this->assertNotNull($other->fresh());
+        // Pedro is now the only administrator: he can't lower his own role, and can't delete himself
+        $self = ['name' => $other->name, 'email' => $other->email, 'position' => 'Head', 'department' => 'IT', 'contact' => '09171234567'];
+        $this->put("/settings/accounts/{$other->id}", $self + ['role' => 'user'])->assertSessionHas('error');
+        $this->delete("/settings/accounts/{$other->id}")->assertSessionHas('error');
+        $this->assertSame('admin', $other->fresh()->role);
     }
 
     public function test_only_administrator_left_cannot_be_demoted_by_another_page_route(): void

@@ -219,7 +219,7 @@ class DashboardController extends Controller
                     'utilization' => $d->utilization,
                     'landmark' => $d->location,
                     'seen' => $d->last_seen_at?->diffForHumans(),
-                    'edit' => route('devices.edit', $d->id),
+                    'edit' => $this->canEdit() ? route('devices.edit', $d->id) : null,
                 ])->values()->all(),
             ])
             ->values()
@@ -261,7 +261,7 @@ class DashboardController extends Controller
                 'uplink' => $d->uplinkValue() ?: null,
                 // Clients connected now (access points that answer and report a count)
                 'clients' => $d->type === 'ap' && $d->status === 'online' ? $d->clients : null,
-                'edit' => route('devices.edit', $d->id),
+                'edit' => $this->canEdit() ? route('devices.edit', $d->id) : null,
             ]);
 
         $routers = MikrotikRouter::query()
@@ -283,10 +283,16 @@ class DashboardController extends Controller
                 'landmark' => $r->location,
                 'seen' => $r->last_seen_at?->diffForHumans(),
                 'uplink' => null,
-                'edit' => route('routers.show', $r->id),
+                'edit' => $this->canEdit() ? route('routers.show', $r->id) : null,
             ]);
 
         return [...$routers->all(), ...$devices->all()];
+    }
+
+    /** Edit links (devices, routers) are for administrators; others only look. */
+    private function canEdit(): bool
+    {
+        return (bool) auth()->user()?->isAdmin();
     }
 
     /** The dashboard's event panel: the latest events of the last 24 hours. */

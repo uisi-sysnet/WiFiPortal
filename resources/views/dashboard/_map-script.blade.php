@@ -71,7 +71,7 @@
       + (up ? '<dt>Connected to</dt><dd>' + up + '</dd>' : '')
       + (down ? '<dt>Plugged in</dt><dd>' + down + ' device' + (down === 1 ? '' : 's') + '</dd>' : '')
       + '<dt>Location</dt><dd>' + (d.type === 'router' ? '' : esc(d.barangay || 'No barangay') + (d.landmark ? '<br>' : '')) + esc(d.landmark || '') + '</dd>'
-      + '</dl><a href="' + esc(d.edit) + '">' + (d.type === 'router' ? 'Open router' : 'Edit device') + '</a>';
+      + '</dl>' + (d.edit ? '<a href="' + esc(d.edit) + '">' + (d.type === 'router' ? 'Open router' : 'Edit device') + '</a>' : '');
   }
 
   function visible() {

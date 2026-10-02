@@ -337,6 +337,24 @@ Counts are logged per AP per hour (average and peak) in `ap_client_stats`, kept 
   clients now, per barangay or all; busiest barangays and APs; Print. APs need a map position.
 - **Dashboard map:** the **Heat** checkbox overlays clients connected now; AP pop-ups show clients.
 
+## System users and roles
+
+Settings > **System users** (administrators only): add, edit and delete the people who sign in.
+Each has a full name, position, department, contact, sign-in email, password (12+ characters)
+and a role:
+
+| Role | Can open |
+|---|---|
+| **Administrator** | everything: devices, routers, captive portal, RADIUS, logs, settings, system users |
+| **User** | the dashboard, and the Users page with its PDF/PNG report, heat map and CSV downloads |
+| **Viewer** | the dashboard only |
+
+Menus only show what the role can open; opening another page goes back to the dashboard with
+a note. You can't delete your own account or lower your own role, and the last administrator
+can't be deleted or demoted. Reports print "at the request of <full name>, <position>,
+<department>" for whoever generated them. `php artisan wifi:make-admin` creates or resets an
+administrator; accounts that existed before roles were added became administrators.
+
 ## Events, Telegram alerts and the automatic report
 
 Every change of state is logged (**Logs**, and **Recent events** on the dashboard): a router

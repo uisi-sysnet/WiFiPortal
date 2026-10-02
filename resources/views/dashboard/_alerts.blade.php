@@ -13,7 +13,11 @@
         <li class="{{ $a->level }}">
           <span class="lvl">{{ $a->level === 'full' ? 'Full' : 'Busy' }}</span>
           <div>
-            <a href="{{ route('routers.show', $a->mikrotik_router_id) }}#capacity">{{ $a->title() }}</a>
+            @if (auth()->user()?->isAdmin())
+              <a href="{{ route('routers.show', $a->mikrotik_router_id) }}#capacity">{{ $a->title() }}</a>
+            @else
+              <b>{{ $a->title() }}</b>
+            @endif
             <p>{{ $a->message }}</p>
           </div>
           <time datetime="{{ $a->opened_at->toIso8601String() }}">{{ $a->opened_at->diffForHumans(short: true) }}</time>

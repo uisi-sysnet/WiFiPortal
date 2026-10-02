@@ -48,13 +48,15 @@
       <div class="map-empty" id="map-empty" @if(count($mapDevices)) hidden @endif>
         <div>
           <p>No access point or switch has a map position yet. Add one with its latitude and longitude and it appears here.</p>
-          <a href="{{ route('aps.index', ['add' => 1]) }}">Add access point</a>
-          <a href="{{ route('switches.index', ['add' => 1]) }}">Add switch</a>
+          @if (auth()->user()?->isAdmin())
+            <a href="{{ route('aps.index', ['add' => 1]) }}">Add access point</a>
+            <a href="{{ route('switches.index', ['add' => 1]) }}">Add switch</a>
+          @endif
         </div>
       </div>
     </div>
     <div class="map-foot">
       <p id="map-summary" aria-live="polite"><b>{{ $mapAps }}</b> access points, <b>{{ $mapSw }}</b> switches and <b>{{ $mapRouters }}</b> routers on the map.</p>
-      <p>Circle is an access point, square a switch, diamond a router. Glowing arcs show what each device is plugged into, with light flowing from the uplink; red and dashed when either end is offline. Red and pulsing means offline. Heat: clients connected now per access point (<a href="{{ route('users.heatmap') }}">heat map report</a>). Refreshes every minute<span id="map-updated"></span>.</p>
+      <p>Circle is an access point, square a switch, diamond a router. Glowing arcs show what each device is plugged into, with light flowing from the uplink; red and dashed when either end is offline. Red and pulsing means offline. Heat: clients connected now per access point. @if (auth()->user()?->hasRole('user'))<a href="{{ route('users.heatmap') }}">Heat map report</a>. @endif Refreshes every minute<span id="map-updated"></span>.</p>
     </div>
   </section>

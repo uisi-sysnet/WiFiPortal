@@ -90,7 +90,7 @@
       </div>
     </div>
     @if ($allAps->isEmpty())
-      <p class="grid-empty">No access points yet.<a href="{{ route('aps.index', ['add' => 1]) }}">Add access point</a></p>
+      <p class="grid-empty">No access points yet.@if (auth()->user()?->isAdmin())<a href="{{ route('aps.index', ['add' => 1]) }}">Add access point</a>@endif</p>
     @else
       <div class="grid" id="ap-grid">
         @foreach ($apGrid as $g)
@@ -99,7 +99,7 @@
             <ul class="cells" aria-label="Access points in {{ $g['barangay'] }}">
               @foreach ($g['aps'] as $ap)
                 <li>
-                  <a class="cell {{ $ap['status'] }}" href="{{ $ap['edit'] }}" tabindex="-1"
+                  <a class="cell {{ $ap['status'] }}" @if ($ap['edit']) href="{{ $ap['edit'] }}" @endif tabindex="-1"
                      data-ap="{{ json_encode([...$ap, 'barangay' => $g['barangay']]) }}"
                      style="--load:{{ $ap['clients'] === null ? 1 : round(0.35 + 0.65 * $ap['clients'] / $maxClients, 2) }}"
                      aria-label="{{ $ap['name'] }}, {{ $ap['status'] === 'unknown' ? 'not checked yet' : $ap['status'] }}, {{ $ap['clients'] === null ? 'clients not collected' : $ap['clients'].' clients' }}, {{ $ap['utilization'] === null ? 'utilization not collected' : $ap['utilization'].' percent utilization' }}"></a>
@@ -109,7 +109,7 @@
           </div>
         @endforeach
       </div>
-      <p class="grid-note">Each light is one access point. Hover, or tab in and use the arrow keys, to see its details. Click to edit it.</p>
+      <p class="grid-note">Each light is one access point. Hover, or tab in and use the arrow keys, to see its details.@if (auth()->user()?->isAdmin()) Click to edit it.@endif</p>
     @endif
     <div class="ap-tip" id="ap-tip" role="tooltip" hidden></div>
   </section>
@@ -133,7 +133,7 @@
   <section class="panel events" aria-labelledby="events-title">
     <div class="panel-head">
       <h2 id="events-title">Recent events</h2>
-      <p><a href="{{ route('logs') }}" style="color:inherit">Last 24 hours &rsaquo; all</a></p>
+      <p>@if (auth()->user()?->isAdmin())<a href="{{ route('logs') }}" style="color:inherit">Last 24 hours &rsaquo; all</a>@else Last 24 hours @endif</p>
     </div>
     <ul class="log">
       @forelse ($events as $e)
