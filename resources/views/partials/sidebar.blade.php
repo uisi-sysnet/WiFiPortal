@@ -16,6 +16,7 @@
   $icon = fn ($d) => '<svg class="sb-ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'.$d.'</svg>';
   $icons = [
       'dashboard' => '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+      'watchtower' => '<circle cx="12" cy="11" r="2"/><path d="M8.5 7.5a5 5 0 0 0 0 7M15.5 7.5a5 5 0 0 1 0 7M5.6 4.6a9 9 0 0 0 0 12.8M18.4 4.6a9 9 0 0 1 0 12.8M12 13v8M9 21h6"/>',
       'devices' => '<rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 17.5h.01M10 17.5h.01M12 14V9M8.5 6.5a5 5 0 0 1 7 0M6 4a8.5 8.5 0 0 1 12 0"/>',
       'users' => '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
       'radius' => '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4M12 15v2"/>',
@@ -116,6 +117,7 @@ html.sb-collapsed .sb-item:hover::after,html.sb-collapsed .sb-item:focus-visible
   <nav class="sb-nav" aria-label="Main">
     <p class="sb-sec">Monitoring</p>
     <a class="sb-item" href="{{ route('dashboard') }}" data-tip="Dashboard" {{ $cur('dashboard') }}>{!! $icon($icons['dashboard']) !!}<span class="sb-label">Dashboard</span></a>
+    <a class="sb-item" href="{{ route('watchtower') }}" data-tip="Watchtower" {{ $cur('watchtower') }}>{!! $icon($icons['watchtower']) !!}<span class="sb-label">Watchtower</span></a>
 
     @if ($isAdmin)
       <button type="button" class="sb-item sb-group" data-tip="Devices" aria-expanded="{{ $devicesOpen ? 'true' : 'false' }}" aria-controls="sb-devices">

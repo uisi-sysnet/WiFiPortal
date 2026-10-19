@@ -43,6 +43,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/dashboard/live', [DashboardController::class, 'live'])->name('dashboard.live');
         Route::get('/dashboard/users-chart', [DashboardController::class, 'usersChart'])->name('dashboard.users-chart');
         Route::get('/dashboard/map', [DashboardController::class, 'map'])->name('dashboard.map');
+        Route::get('/watchtower', [DashboardController::class, 'watchtower'])->name('watchtower');
+        Route::get('/watchtower/data', [DashboardController::class, 'watchtowerData'])->name('watchtower.data');
     });
 
     // User and up: the Users page, its charts and report downloads

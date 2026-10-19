@@ -11,6 +11,7 @@ use App\Models\NetworkDevice;
 use App\Models\Setting;
 use App\Models\SystemEvent;
 use App\Services\Dashboard\UserHistory;
+use App\Services\Monitoring\Troubleshooter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -39,6 +40,63 @@ class DashboardController extends Controller
             'mapBarangays' => Barangay::query()->whereHas('devices')->orderBy('name')->pluck('name'),
             'mapCenter' => $this->center(),
         ]);
+    }
+
+    /**
+     * Watchtower: the network on a full-screen map, with live panels over it
+     * (status, counts, alerts, what to check first, users online, busiest
+     * barangays, latest events). Its data comes from watchtowerData().
+     */
+    public function watchtower()
+    {
+        return view('dashboard.watchtower', [
+            'mapCenter' => $this->center(),
+            'initial' => $this->watchtowerPayload(),
+        ]);
+    }
+
+    /** JSON for the Watchtower's refresh every 30 seconds. */
+    public function watchtowerData()
+    {
+        return response()->json($this->watchtowerPayload())->header('Cache-Control', 'no-store');
+    }
+
+    private function watchtowerPayload(): array
+    {
+        $tz = (string) config('hotspot.history.timezone');
+        $t = app(Troubleshooter::class)->analyse();
+        $chart = app(UserHistory::class)->series('day');
+        // Troubleshooter keys are "router:2" / "dev:5"; the map's are "router:2" / "ap:5" / "switch:5"
+        $mapKey = fn (array $n) => $n['type'] === 'router' ? $n['key'] : $n['type'].':'.substr($n['key'], 4);
+
+        return [
+            'updated' => now()->toIso8601String(),
+            'clock' => now($tz)->format('H:i'),
+            'kpis' => $this->kpis(),
+            'status' => $t['status'],
+            'counts' => $t['counts'],
+            'roots' => array_map(fn ($r) => [
+                'key' => $mapKey($r),
+                'label' => $r['label'],
+                'name' => $r['name'],
+                'where' => $r['where'],
+                'down_for' => $r['last_seen'] ? $r['down_for'] : 'never answered',
+                'finding' => $r['diagnosis']['finding'],
+                'behind' => count($r['behind']),
+                'type' => $r['type'],
+            ], array_slice($t['roots'], 0, 12)),
+            'devices' => $this->mapDevices(),
+            'barangays' => array_slice(array_values(array_filter($this->barangayClients(), fn ($b) => $b['aps'] > 0)), 0, 8),
+            'alerts' => $this->alerts()->take(6)->map(fn (CapacityAlert $a) => [
+                'level' => $a->level, 'title' => $a->title(), 'message' => $a->message,
+            ])->values()->all(),
+            'events' => $this->recentEvents(),
+            'chart' => [
+                'points' => array_map(fn ($p) => ['at' => $p['at']->copy()->setTimezone($tz)->format('H:i'), 'value' => $p['value']], $chart['points']),
+                'peak' => $chart['peak'] ? ['value' => $chart['peak']['value'], 'at' => $chart['peak']['at']->copy()->setTimezone($tz)->format('H:i')] : null,
+                'now' => $chart['now'],
+            ],
+        ];
     }
 
     /** The map alone, filling the window (opened in a new tab from the dashboard). */
