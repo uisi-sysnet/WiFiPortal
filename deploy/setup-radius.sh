@@ -47,8 +47,9 @@ echo "==> RADIUS tables in $DB_NAME"
 # The FreeRADIUS schema, owned by the app's role. Tables that already exist (radcheck,
 # created by the Laravel migration) are skipped.
 cd /tmp
-sudo -u postgres psql -q -d "$DB_NAME" -c "SET ROLE $DB_USER" \
-    -f "$RADDB/mods-config/sql/main/postgresql/schema.sql" 2>&1 | grep -v "already exists" || true
+# Root reads the file (postgres can't open /etc/freeradius) and pipes it in
+sudo -u postgres psql -q -d "$DB_NAME" -c "SET ROLE $DB_USER" -f - \
+    < "$RADDB/mods-config/sql/main/postgresql/schema.sql" 2>&1 | grep -v "already exists" || true
 for t in radcheck radreply radgroupcheck radgroupreply radusergroup radacct radpostauth nas; do
     sudo -u postgres psql -tAc "SELECT to_regclass('public.$t')" -d "$DB_NAME" | grep -q "$t" \
         || { echo "Table $t was not created." >&2; exit 1; }
