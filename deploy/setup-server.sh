@@ -58,7 +58,8 @@ find storage bootstrap/cache -type d -exec chmod g+s {} +
 echo "==> Composer"
 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction
 
-grep -q '^APP_KEY=base64:' .env || sudo -u www-data php artisan key:generate --force
+# As the owner: .env is 640, so www-data can read it but not write the key into it
+grep -q '^APP_KEY=base64:' .env || sudo -u "$OWNER" php artisan key:generate --force
 sudo -u www-data php artisan migrate --force
 [[ -L public/storage ]] || sudo -u www-data php artisan storage:link
 sudo -u www-data php artisan optimize
