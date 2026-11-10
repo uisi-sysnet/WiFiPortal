@@ -64,10 +64,6 @@
     .plan{background:var(--panel);border:1px solid var(--line);padding:18px 20px 20px;margin-bottom:28px}
     .plan p{margin:0;color:var(--ink-2);max-width:78ch}
     .plan strong{color:var(--ink)}
-    .plan-grid{display:grid;grid-template-columns:repeat(64,minmax(0,1fr));gap:2px;margin-top:14px}
-    .plan-grid span{aspect-ratio:1;background:#DCE2DF;border-radius:1px}
-    .plan-grid span.used{background:var(--signal)}
-    .plan-grid span.next{background:var(--focus)}
     .legend{display:flex;gap:18px;margin-top:10px;font-size:.82rem;color:var(--ink-2)}
     .legend i{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px;background:#DCE2DF}
     .legend i.used{background:var(--signal)} .legend i.next{background:var(--focus)}

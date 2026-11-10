@@ -17,21 +17,22 @@
   $used = array_flip($plan['used_indexes']);
   $nextFree = null;
   for ($i = 0; $i < $plan['blocks']; $i++) { if (! isset($used[$i])) { $nextFree = $i; break; } }
+  $nextSubnet = $nextFree === null ? null
+    : long2ip(ip2long(strtok($plan['supernet'], '/')) + $nextFree * (1 << (32 - $plan['site_prefix']))).'/'.$plan['site_prefix'];
+  $usedPct = $plan['blocks'] ? count($used) / $plan['blocks'] * 100 : 0;
 @endphp
 <section class="plan" aria-labelledby="plan-title">
   <h2 id="plan-title">Address plan</h2>
   <p>
-    <span class="mono">{{ $plan['supernet'] }}</span> split into /{{ $plan['site_prefix'] }} blocks.
-    <strong>{{ number_format(count($used)) }} of {{ number_format($plan['blocks']) }}</strong> blocks in use.
-    Each hotspot network serves up to {{ number_format($plan['hosts_per_block']) }} devices, so the full plan holds
-    {{ number_format($plan['total_hosts']) }} addresses.
+    <span class="mono">{{ $plan['supernet'] }}</span> in /{{ $plan['site_prefix'] }} blocks:
+    <strong>{{ number_format(count($used)) }} of {{ number_format($plan['blocks']) }}</strong> in use
+    ({{ number_format($plan['hosts_per_block']) }} devices each).
+    Next network: <span class="mono">{{ $nextSubnet ?? 'none free' }}</span>
   </p>
-  <div class="plan-grid" role="img" aria-label="{{ count($used) }} of {{ $plan['blocks'] }} address blocks used">
-    @for ($i = 0; $i < $plan['blocks']; $i++)
-      <span @class(['used' => isset($used[$i]), 'next' => $i === $nextFree])></span>
-    @endfor
+  <div role="img" aria-label="{{ count($used) }} of {{ $plan['blocks'] }} address blocks used"
+       style="height:8px;margin-top:10px;background:#DCE2DF;border-radius:4px;overflow:hidden">
+    <div style="height:100%;width:{{ count($used) ? max($usedPct, 1) : 0 }}%;background:var(--signal)"></div>
   </div>
-  <div class="legend"><span><i class="used"></i>In use</span><span><i class="next"></i>Next network</span><span><i></i>Free</span></div>
 </section>
 
 @if ($routers->isEmpty())
