@@ -61,7 +61,8 @@ sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interactio
 # As the owner: .env is 640, so www-data can read it but not write the key into it
 grep -q '^APP_KEY=base64:' .env || sudo -u "$OWNER" php artisan key:generate --force
 sudo -u www-data php artisan migrate --force
-[[ -L public/storage ]] || sudo -u www-data php artisan storage:link
+# As the owner: public/ is not writable by www-data
+[[ -L public/storage ]] || sudo -u "$OWNER" php artisan storage:link
 sudo -u www-data php artisan optimize
 
 echo "==> PHP-FPM"
