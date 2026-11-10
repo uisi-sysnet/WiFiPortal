@@ -291,22 +291,43 @@ details.add[open] summary{margin-bottom:14px}
       }
   }
 @endphp
-<h2>Ports</h2>
-<div class="table-wrap" style="margin-bottom:28px">
-  <table>
-    <thead><tr><th>Port</th><th>Role</th><th>Bridge</th></tr></thead>
-    <tbody>
-    @foreach ($router->port_roles ?? [] as $port => $role)
-      @php [$label, $color] = $accessOf[$port] ?? [$roleNames[$role] ?? $role, $roleColors[$role] ?? '#B8C2BD']; @endphp
-      <tr>
-        <td class="mono">{{ $port }}</td>
-        <td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:8px;background:{{ $color }}"></span>{{ $label }}</td>
-        <td class="mono">{{ $role === 'lan' ? 'bridge-lan' : ($role === 'trunk' || isset($accessOf[$port]) ? 'bridge-trunk' : '') }}</td>
-      </tr>
-    @endforeach
-    </tbody>
-  </table>
-</div>
+<h2 id="ports">Ports</h2>
+<form method="POST" action="{{ route('routers.ports', $router) }}" style="margin-bottom:28px">
+  @csrf @method('PUT')
+  @error('ports')<p class="error" role="alert">{{ $message }}</p>@enderror
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Port</th><th>Role</th><th>Bridge</th></tr></thead>
+      <tbody>
+      @foreach ($router->port_roles ?? [] as $port => $role)
+        @php
+          [$label, $color] = $accessOf[$port] ?? [$roleNames[$role] ?? $role, $roleColors[$role] ?? '#B8C2BD'];
+          // Plain "access" (older routers) means the first network
+          $current = old("ports.$port", $role === 'access' && $networks->isNotEmpty() ? 'access:'.$networks->first()->vlan_id : $role);
+        @endphp
+        <tr>
+          <td class="mono"><label for="port-{{ $loop->index }}">{{ $port }}</label></td>
+          <td>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:8px;background:{{ $color }}" aria-hidden="true"></span>
+            <select id="port-{{ $loop->index }}" name="ports[{{ $port }}]" @disabled($router->isBusy())>
+              @foreach (['wan' => 'WAN', 'trunk' => 'Trunk (tagged, to switches and APs)', 'lan' => 'LAN'] as $value => $text)
+                <option value="{{ $value }}" @selected($current === $value)>{{ $text }}</option>
+              @endforeach
+              @foreach ($networks as $n)
+                <option value="access:{{ $n->vlan_id }}" @selected($current === 'access:'.$n->vlan_id)>{{ $n->name }} (untagged)</option>
+              @endforeach
+              <option value="none" @selected($current === 'none')>Not used</option>
+            </select>
+          </td>
+          <td class="mono">{{ $role === 'lan' ? 'bridge-lan' : ($role === 'trunk' || isset($accessOf[$port]) ? 'bridge-trunk' : '') }}</td>
+        </tr>
+      @endforeach
+      </tbody>
+    </table>
+  </div>
+  <p class="hint" style="margin:10px 0">Exactly one WAN, and at least one trunk or hotspot port. Checked on the router before anything changes, so the dashboard's own connection is never cut.</p>
+  <button class="btn quiet sm" type="submit" @disabled($router->isBusy())>Save ports and update router</button>
+</form>
 
 <h2>Configuration log</h2>
 @if ($router->provision_log)

@@ -138,5 +138,7 @@ Route::middleware('auth')->group(function () {
             ->name('routers.position');
         Route::put('/routers/{router}/capacity', [RouterController::class, 'updateCapacity'])
             ->name('routers.capacity');
+        Route::put('/routers/{router}/ports', [RouterController::class, 'updatePorts'])
+            ->name('routers.ports');
     });
 });

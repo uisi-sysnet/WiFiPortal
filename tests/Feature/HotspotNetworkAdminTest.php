@@ -198,6 +198,32 @@ class HotspotNetworkAdminTest extends TestCase
         $this->assertSame(['192.168.101.254', null], [$network->fresh()->pool_end, $network->fresh()->max_users]);
     }
 
+    public function test_ports_can_be_changed_and_are_checked_first(): void
+    {
+        $this->addRouter()->assertSessionHasNoErrors();
+        $router = MikrotikRouter::sole();
+        $router->forceFill(['status' => 'ok'])->save();
+        Queue::fake();
+        $this->get("/routers/{$router->id}")->assertSee('name="ports[ether2]"', false);
+
+        // Two WANs, or a role for a network the router doesn't have: refused, nothing saved
+        $this->put("/routers/{$router->id}/ports", ['ports' => ['ether1' => 'wan', 'ether2' => 'wan']])->assertSessionHasErrors('ports');
+        $this->put("/routers/{$router->id}/ports", ['ports' => ['ether2' => 'access:77']])->assertSessionHasErrors('ports.ether2');
+        Queue::assertNothingPushed();
+
+        // WAN moves to ether5, ether1 becomes a hotspot port; unknown ports are ignored
+        $this->put("/routers/{$router->id}/ports", ['ports' => [
+            'ether1' => 'access:11', 'ether2' => 'trunk', 'ether3' => 'access:10', 'ether4' => 'access:11', 'ether5' => 'wan', 'ether9' => 'lan',
+        ]])->assertSessionHasNoErrors()->assertRedirect();
+
+        $router->refresh();
+        $this->assertSame('ether5', $router->wan_interface);
+        $this->assertSame(['ether1', 'ether4'], $router->portsWith('access:11'));
+        $this->assertArrayNotHasKey('ether9', $router->port_roles);
+        $this->assertSame(MikrotikRouter::STATUS_PENDING, $router->status);
+        Queue::assertPushed(ProvisionHotspot::class);
+    }
+
     private function addRouter(array $overrides = [])
     {
         $this->postJson('/routers/test-connection', self::CONNECTION)->assertOk();

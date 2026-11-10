@@ -314,6 +314,40 @@ class RouterController extends Controller
             ->with('status', "{$router->name} is now rated for ".number_format($router->ratedUsers()).' hotspot users.');
     }
 
+    /** Changes what each port does, checked on the live router first, then re-applies the configuration. */
+    public function updatePorts(Request $request, MikrotikRouter $router, HotspotProvisioner $provisioner)
+    {
+        $vlanIds = $router->hotspotNetworks->pluck('vlan_id')->all();
+        $data = $request->validate([
+            'ports' => ['required', 'array'],
+            'ports.*' => ['required', 'string', function ($attr, $value, $fail) use ($vlanIds) {
+                $ok = in_array($value, ['wan', 'lan', 'trunk', 'none'], true)
+                    || (str_starts_with($value, 'access:') && in_array((int) substr($value, 7), $vlanIds, true));
+                if (! $ok) {
+                    $fail('Choose a role for every port.');
+                }
+            }],
+        ]);
+
+        // Only the ports the router already has; the form can't add or rename them.
+        $roles = array_intersect_key($data['ports'], $router->port_roles ?? []);
+        $router->fill(['port_roles' => $roles + ($router->port_roles ?? []), 'wan_interface' => array_search('wan', $roles, true) ?: null]);
+
+        try {
+            $provisioner->probe($router, $router->hotspotNetworks); // one WAN, a trunk or hotspot port, and the API link survives
+        } catch (Throwable $e) {
+            return back()->withInput()->withErrors(['ports' => HotspotProvisioner::explain($e, $router)]);
+        }
+        if (! $router->isDirty('port_roles')) {
+            return redirect()->to(route('routers.show', $router).'#ports')->with('status', 'No port changed.');
+        }
+
+        $router->forceFill(['status' => MikrotikRouter::STATUS_PENDING, 'last_error' => null])->save();
+        ProvisionHotspot::dispatch($router);
+
+        return redirect()->to(route('routers.show', $router).'#ports')->with('status', "Ports of {$router->name} saved. The configuration is being applied.");
+    }
+
     /** Map position, so lines from its switches and access points can be drawn on the dashboard. */
     public function updatePosition(Request $request, MikrotikRouter $router)
     {
