@@ -86,6 +86,7 @@ html.sb-collapsed .sb-item:hover::after,html.sb-collapsed .sb-item:focus-visible
   .sb{width:var(--sb-full);transform:translateX(-100%)}
   html.sb-open .sb{transform:none}
   html.sb-collapsed .sb-name,html.sb-collapsed .sb-label,html.sb-collapsed .sb-caret,html.sb-collapsed .sb-sec{display:revert}
+  html.sb-collapsed .sb-sub:not([hidden]){display:block}
   html.sb-collapsed .sb-item{justify-content:flex-start;padding:9px 12px}
   .sb-toggle{display:none}
   .sb-burger{display:grid;place-items:center;position:fixed;top:12px;left:12px;z-index:1250;width:42px;height:42px;border-radius:10px;border:1px solid rgba(242,184,75,.5);
@@ -116,11 +117,11 @@ html.sb-collapsed .sb-item:hover::after,html.sb-collapsed .sb-item:focus-visible
 
   <nav class="sb-nav" aria-label="Main">
     <p class="sb-sec">Monitoring</p>
-    <a class="sb-item" href="{{ route('dashboard') }}" data-tip="Dashboard" {{ $cur('dashboard') }}>{!! $icon($icons['dashboard']) !!}<span class="sb-label">Dashboard</span></a>
-    <a class="sb-item" href="{{ route('watchtower') }}" data-tip="Watchtower" {{ $cur('watchtower') }}>{!! $icon($icons['watchtower']) !!}<span class="sb-label">Watchtower</span></a>
+    <a class="sb-item" href="{{ route('dashboard') }}" data-tip="Dashboard" aria-label="Dashboard" {{ $cur('dashboard') }}>{!! $icon($icons['dashboard']) !!}<span class="sb-label">Dashboard</span></a>
+    <a class="sb-item" href="{{ route('watchtower') }}" data-tip="Watchtower" aria-label="Watchtower" {{ $cur('watchtower') }}>{!! $icon($icons['watchtower']) !!}<span class="sb-label">Watchtower</span></a>
 
     @if ($isAdmin)
-      <button type="button" class="sb-item sb-group" data-tip="Devices" aria-expanded="{{ $devicesOpen ? 'true' : 'false' }}" aria-controls="sb-devices">
+      <button type="button" class="sb-item sb-group" data-tip="Devices" aria-label="Devices" aria-expanded="{{ $devicesOpen ? 'true' : 'false' }}" aria-controls="sb-devices">
         {!! $icon($icons['devices']) !!}<span class="sb-label">Devices</span>
         <svg class="sb-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
       </button>
@@ -129,16 +130,16 @@ html.sb-collapsed .sb-item:hover::after,html.sb-collapsed .sb-item:focus-visible
         <a class="sb-item" href="{{ route('aps.index') }}" {{ request()->routeIs('aps.*') || (request()->routeIs('devices.*') && request()->route('device')?->type === 'ap') ? 'aria-current=page' : '' }}><span class="sb-label">Access points</span></a>
         <a class="sb-item" href="{{ route('switches.index') }}" {{ request()->routeIs('switches.*') || (request()->routeIs('devices.*') && request()->route('device')?->type === 'switch') ? 'aria-current=page' : '' }}><span class="sb-label">Switches</span></a>
       </div>
-      <a class="sb-item" href="{{ route('radius') }}" data-tip="RADIUS" {{ $cur('radius') }}>{!! $icon($icons['radius']) !!}<span class="sb-label">RADIUS</span></a>
+      <a class="sb-item" href="{{ route('radius') }}" data-tip="RADIUS" aria-label="RADIUS" {{ $cur('radius') }}>{!! $icon($icons['radius']) !!}<span class="sb-label">RADIUS</span></a>
     @endif
 
     @if ($isUser)
       <p class="sb-sec">Hotspot users</p>
-      <a class="sb-item" href="{{ route('users.index') }}" data-tip="Users" {{ $cur('users.*') }}>{!! $icon($icons['users']) !!}<span class="sb-label">Users</span></a>
+      <a class="sb-item" href="{{ route('users.index') }}" data-tip="Users" aria-label="Users" {{ $cur('users.*') }}>{!! $icon($icons['users']) !!}<span class="sb-label">Users</span></a>
     @endif
 
     @if ($isAdmin)
-      <button type="button" class="sb-item sb-group" data-tip="Captive portal" aria-expanded="{{ $portalOpen ? 'true' : 'false' }}" aria-controls="sb-portal">
+      <button type="button" class="sb-item sb-group" data-tip="Captive portal" aria-label="Captive portal" aria-expanded="{{ $portalOpen ? 'true' : 'false' }}" aria-controls="sb-portal">
         {!! $icon($icons['portal']) !!}<span class="sb-label">Captive portal</span>
         <svg class="sb-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
       </button>
@@ -148,8 +149,8 @@ html.sb-collapsed .sb-item:hover::after,html.sb-collapsed .sb-item:focus-visible
       </div>
 
       <p class="sb-sec">System</p>
-      <a class="sb-item" href="{{ route('logs') }}" data-tip="Logs" {{ $cur('logs', 'logs.*') }}>{!! $icon($icons['logs']) !!}<span class="sb-label">Logs</span></a>
-      <a class="sb-item" href="{{ route('settings') }}" data-tip="Settings" {{ $cur('settings') }}>{!! $icon($icons['settings']) !!}<span class="sb-label">Settings</span></a>
+      <a class="sb-item" href="{{ route('logs') }}" data-tip="Logs" aria-label="Logs" {{ $cur('logs', 'logs.*') }}>{!! $icon($icons['logs']) !!}<span class="sb-label">Logs</span></a>
+      <a class="sb-item" href="{{ route('settings') }}" data-tip="Settings" aria-label="Settings" {{ $cur('settings') }}>{!! $icon($icons['settings']) !!}<span class="sb-label">Settings</span></a>
     @endif
   </nav>
 

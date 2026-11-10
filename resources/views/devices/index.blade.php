@@ -19,9 +19,6 @@
   --fail: #B3372E;
 }
 
-/* ---- Prevent page scroll ---- */
-html, body { height: 100%; overflow: hidden; }
-body.wide main { max-width: 1600px; height: 100%; overflow: hidden; }
 .page-wrapper { height: calc(100vh - 95px); display: flex; flex-direction: column; overflow: hidden; }
 
 /* ============================================================

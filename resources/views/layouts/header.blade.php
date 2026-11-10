@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>@yield('title', 'Public WiFi Control')</title>
-  @stack('head')
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -36,19 +35,7 @@
       },
     }
   </script>
-  <style type="text/tailwindcss">
-    @layer base {
-      body {
-        @apply m-0 bg-paper text-ink font-sans text-[15px] leading-[1.55] tabular-nums;
-      }
-      a {
-        @apply text-signal;
-      }
-      :focus-visible {
-        @apply outline outline-[3px] outline-focus outline-offset-2;
-      }
-    }
-    
+  <style>
     main{max-width:1100px;margin:0 auto;padding:36px 24px 72px}
     :root{
       --ink:#16242E; --ink-2:#465A66; --paper:#EDF0EE; --panel:#FFFFFF; --line:#CAD3CE;
@@ -118,5 +105,7 @@
       .topbar{flex-wrap:wrap;gap:12px 20px;padding:12px 18px}
     }
   </style>
+  @stack('head')
+  <link rel="stylesheet" href="{{ asset('css/admin.css') }}?v={{ filemtime(public_path('css/admin.css')) }}">
 </head>
-<body class="@yield('body-class')">
+<body class="@auth admin-shell @endauth @yield('body-class')">
